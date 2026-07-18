@@ -73,6 +73,24 @@ OPENROUTER_API_KEY=sk-or-v1-xxxxxxxxxxxxxxxxxxxxxxx
 
 ---
 
+### 🌐 One-Time DNS Routing Configuration (AWS Route 53)
+
+Because this deployment script uses a free, automated dynamic DNS broker (DuckDNS) to ensure cross-cloud compatibility, you must point your AWS managed domain to your DuckDNS alias.
+
+1. Head to [DuckDNS.org](https://duckdns.org) and log in (completely free).
+2. Create a unique subdomain (e.g., `my-hermes-stack`). Note down your **Subdomain** and your **Token**.
+3. Log into your **AWS Route 53 Console** and open your Hosted Zone (e.g., `enabled.world`).
+4. Click **Create Record** and use the following parameters:
+   * **Record Name:** `ai` (creating `ai.enabled.world`)
+   * **Record Type:** `CNAME`
+   * **Value:** `my-hermes-stack.duckdns.org` (replace with your actual DuckDNS subdomain)
+   * **TTL:** `300` seconds
+5. Save the record.
+
+When you run `sudo configure-ai` on your server, the script automatically pings DuckDNS, linking your Hetzner VPS IP to that alias. AWS Route 53 will automatically resolve your main domain flawlessly!
+
+---
+
 ## 🔄 Maintaining & Updating the Stack
 
 To pull down the latest image variants or restart operational components without losing user database structures:
