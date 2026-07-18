@@ -67,6 +67,10 @@ This configuration expects an external **Hetzner Volume** to be attached to your
 
 The setup initialization sequence automatically formats the storage block as an encrypted or native `ext4` partition, mounts it under `/mnt/ai-volume`, and maps all vector index tables and database operations onto it to preserve your local OS disk space.
 
+### 🌐 Customizing External Storage Volumes for Other Cloud Vendors
+If deploying outside of Hetzner (e.g., AWS or DigitalOcean) and utilizing an external volume, simply open `cloud-config.yaml` and modify the storage device locator strings (`/dev/sdb`) to match your provider's specific hardware mount paths (such as `/dev/xvdf` on AWS).
+
+
 ### Finishing Configuration:
 Once the system state transitions to active, SSH directly into your server. You will be greeted with an interactive system configuration banner. Run:
 
