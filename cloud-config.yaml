@@ -1,0 +1,121 @@
+#cloud-config
+
+# 1. Update system package sources on primary initialization
+package_update: true
+package_upgrade: true
+
+# 2. Automatically install base distribution tooling packages across any cloud
+packages:
+  - curl
+  - gnupg
+  - lsb-release
+  - openssl
+  - git
+
+# 3. Create persistent directories required for stack execution
+write_files:
+  - path: /opt/ai-stack/init-setup.sh
+    permissions: '0755'
+    owner: root:root
+    content: |
+      #!/bin/bash
+      set -e
+      cd /opt/ai-stack
+
+      # Configuration Settings - Pointing to your public tracking repo
+      GITHUB_USER="QuickFactory"
+      GITHUB_REPO="ai-deployment"
+      BRANCH="main"
+      RAW_URL="https://githubusercontent.com{GITHUB_USER}/${GITHUB_REPO}/${BRANCH}"
+
+      echo "=== 1. Core Config Retrieval ==="
+      curl -sSL "${RAW_URL}/docker-compose.yml" -o docker-compose.yml
+      curl -sSL "${RAW_URL}/librechat.yaml" -o librechat.yaml
+
+      echo "=== 2. Creating Local Directory Structs ==="
+      mkdir -p hermes_data rag_data searxng librechat_data
+
+      if [ ! -f ./searxng/settings.yml ]; then
+          cat <<EOF > ./searxng/settings.yml
+      use_default_settings: true
+      server:
+        port: 8080
+        bind_address: "0.0.0.0"
+        secret_key: "$(openssl rand -hex 16)"
+      EOF
+      fi
+
+      echo "=== 3. Deploying Base Engine Dependencies ==="
+      # Cross-platform safe method to setup standard Docker Engine package streams
+      mkdir -p /etc/apt/keyrings
+      if [ ! -f /etc/apt/keyrings/docker.gpg ]; then
+          curl -fsSL https://docker.com | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+      fi
+      echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://docker.com $(lsb_release -cs) stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null
+      apt-get update
+      apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+
+      # Creates an interactive configuration utility for the user on their first login
+      cat <<'EOF' > /usr/local/bin/configure-ai
+      #!/bin/bash
+      cd /opt/ai-stack
+      if [ -f .env ]; then
+          echo "⚠️  An environment setup file already exists. Modify /opt/ai-stack/.env directly."
+          exit 1
+      fi
+
+      echo "=========================================================="
+      echo "   🚀 INITIALIZING CORE AI-STACK CONFIGURATION"
+      echo "=========================================================="
+      read -p "Enter your application domain (e.g., ai.enabled.world): " USER_DOMAIN
+      read -p "Enter your Let's Encrypt Email: " USER_EMAIL
+      read -p "Paste your OpenRouter API Key (sk-or-...): " USER_OR_KEY
+      
+      RANDOM_JWT=$(openssl rand -hex 24)
+      RANDOM_REFRESH=$(openssl rand -hex 24)
+      RANDOM_DB_PASS=$(openssl rand -hex 16)
+      RANDOM_HERMES=$(openssl rand -hex 16)
+
+      cat <<EOT > .env
+      LIBRECHAT_DOMAIN=$USER_DOMAIN
+      LETSENCRYPT_EMAIL=$USER_EMAIL
+      OPENROUTER_API_KEY=$USER_OR_KEY
+      HERMES_INTERNAL_TOKEN=$RANDOM_HERMES
+      LIBRECHAT_JWT_SECRET=$RANDOM_JWT
+      LIBRECHAT_JWT_REFRESH_SECRET=$RANDOM_REFRESH
+      RAG_INTERNAL_API_KEY=$(openssl rand -hex 16)
+      POSTGRES_DB_PASSWORD=$RANDOM_DB_PASS
+      DISCORD_BOT_TOKEN=change_me_if_needed
+      DISCORD_CHANNEL_ID=change_me_if_needed
+      EOT
+
+      echo "✅ Environment compiled. Starting Docker Stack containers..."
+      docker compose --env-file .env up -d
+      echo "🎉 Cluster active! Route domains to this machine IP to access UI."
+      EOF
+      chmod +x /usr/local/bin/configure-ai
+
+  # 4. Message of the Day setup to instruct users on how to complete execution
+  - path: /etc/update-motd.d/99-ai-stack-status
+    permissions: '0755'
+    owner: root:root
+    content: |
+      #!/bin/bash
+      echo "==============================================================="
+      echo " 🌟 AI STACK CLOUD-INIT INFRASTRUCTURE DEPLOYED"
+      echo "==============================================================="
+      if [ ! -f /opt/ai-stack/.env ]; then
+          echo " ➡️  To complete configuration and boot services, run:"
+          echo "    sudo configure-ai"
+      else
+          echo " ✅ Services running. Directory: /opt/ai-stack"
+          echo "    View status via: sudo docker compose -f /opt/ai-stack/docker-compose.yml ps"
+      fi
+      echo "==============================================================="
+
+# 5. Core execution logic to setup memory configurations 
+runcmd:
+  # Create localized system swap file to support running 4GB memory tiers stably
+  - if [ ! -f /swapfile ]; then fallocate -l 4G /swapfile && chmod 600 /swapfile && mkswap /swapfile && swapon /swapfile && echo '/swapfile none swap sw 0 0' >> /etc/fstab; fi
+  # Trigger script execution block
+  - bash /opt/ai-stack/init-setup.sh
