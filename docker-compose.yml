@@ -80,33 +80,9 @@ services:
       - OPENROUTER_KEY=${OPENROUTER_API_KEY}
     volumes:
       - ./librechat.yaml:/app/librechat.yaml:ro
-      - ./librechat_data:/app/client/public/assets
+      - ./librechat_data:/app/client/public/assets # Mapped locally (redirects to Volume)
     depends_on:
       - mongo
-    networks:
-      - ai-network
-
-  rag_api:
-    image: ghcr.io/danny-avila/librechat-rag-api-dev-lite:latest
-    container_name: rag_api
-    environment:
-      - RAG_API_KEY=${RAG_INTERNAL_API_KEY}
-      - DB_TYPE=local
-      - VECTOR_DB_TYPE=pgvector
-      - POSTGRES_HOST=db
-      - POSTGRES_PORT=5432
-      - POSTGRES_DB=librechat_rag
-      - POSTGRES_USER=postgres
-      - POSTGRES_PASSWORD=${POSTGRES_DB_PASSWORD}
-      - RAG_OPENAI_API_KEY=${OPENROUTER_API_KEY}
-      - RAG_OPENAI_BASEURL=https://openrouter.ai
-      - EMBEDDINGS_PROVIDER=openai
-      - EMBEDDINGS_MODEL=openai/text-embedding-3-small
-    volumes:
-      - ./rag_data:/app/data
-    depends_on:
-      - db
-    restart: always
     networks:
       - ai-network
 
@@ -118,7 +94,7 @@ services:
       - POSTGRES_USER=postgres
       - POSTGRES_PASSWORD=${POSTGRES_DB_PASSWORD}
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      - ./postgres_data:/var/lib/postgresql/data # Shifted to local bind mount
     networks:
       - ai-network
     restart: always
@@ -129,10 +105,9 @@ services:
     command: --wiredTigerCacheSizeGB 0.5
     restart: unless-stopped
     volumes:
-      - mongo-data:/data/db
+      - ./mongo_data:/data/db # Shifted to local bind mount
     networks:
       - ai-network
-
   nginx-proxy:
     image: nginxproxy/nginx-proxy
     container_name: nginx-proxy
@@ -174,5 +149,11 @@ volumes:
   mongo-data:
   pgdata:
 
+# Explicitly remove system volumes section since we are binding natively via filesystems
 networks:
   ai-network:
+    enable_ipv6: true
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+        - subnet: fd00:dead:beef::/48
