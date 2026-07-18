@@ -1,0 +1,178 @@
+services:
+  # 1. Core Hermes AI Engine
+  hermes:
+    image: nousresearch/hermes-agent
+    container_name: hermes
+    user: "root"
+    group_add:
+      - 107
+    restart: unless-stopped
+    command: gateway run
+    environment:
+      - API_SERVER_ENABLED=true
+      - API_SERVER_PORT=8642
+      - API_SERVER_HOST=0.0.0.0
+      - API_SERVER_KEY=${HERMES_INTERNAL_TOKEN}
+      - BROWSER_CDP_URL=ws://hermes-browser:3000
+      - DISCORD_BOT_TOKEN=${DISCORD_BOT_TOKEN}
+      - DISCORD_CHANNEL_ID=${DISCORD_CHANNEL_ID}
+      - GATEWAY_ALLOW_ALL_USERS=true
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
+      - HERMES_MODEL_PROVIDER=openrouter
+      - HERMES_MODEL=google/gemini-2.5-flash
+      - HERMES_AUXILIARY_DEFAULT_PROVIDER=openrouter
+      - HERMES_AUXILIARY_DEFAULT_MODEL=google/gemma-4-26b-a4b-it:free
+      - HERMES_AUXILIARY_VISION_PROVIDER=openrouter
+      - HERMES_AUXILIARY_VISION_MODEL=google/gemma-4-26b-a4b-it:free
+    volumes:
+      - ./hermes_data:/opt/data
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      - hermes-browser
+    networks:
+      - ai-network
+
+  # 2. Standalone Headless Chrome Browser Service
+  hermes-browser:
+    image: browserless/chrome:1.61-chrome-stable
+    container_name: hermes-browser
+    restart: unless-stopped
+    environment:
+      - MAX_CONCURRENT_SESSIONS=3
+    networks:
+      - ai-network
+
+  searxng:
+    container_name: searxng
+    image: searxng/searxng:latest
+    volumes:
+      - ./searxng:/etc/searxng:ro
+    restart: unless-stopped
+    networks:
+      - ai-network
+
+  librechat:
+    image: ghcr.io/danny-avila/librechat:latest
+    container_name: librechat
+    restart: unless-stopped
+    expose:
+      - "3080" 
+    environment:
+      - VIRTUAL_HOST=${LIBRECHAT_DOMAIN}
+      - VIRTUAL_PORT=3080
+      - LETSENCRYPT_HOST=${LIBRECHAT_DOMAIN}
+      - LETSENCRYPT_EMAIL=${LETSENCRYPT_EMAIL}
+      - MONGO_URI=mongodb://mongo:27017/librechat
+      - JWT_SECRET=${LIBRECHAT_JWT_SECRET}
+      - JWT_REFRESH_SECRET=${LIBRECHAT_JWT_REFRESH_SECRET}
+      - TITLE=AI Enabled World
+      - CONFIG_PATH=/app/librechat.yaml
+      - ALLOW_REGISTRATION=true
+      - ALLOW_SOCIAL_LOGIN=true
+      - SEARXNG_INSTANCE_URL=http://searxng:8080
+      - FIRECRAWL_API_KEY=not-needed-using-cheerio
+      - FIRECRAWL_API_URL=http://localhost:3002
+      - RAG_API_TOP_K=3
+      - RAG_CHUNK_SIZE=1000
+      - RAG_CHUNK_OVERLAP=100
+      - RAG_API_URL=http://rag_api:8000
+      - RAG_API_KEY=${RAG_INTERNAL_API_KEY}
+      - OPENROUTER_KEY=${OPENROUTER_API_KEY}
+    volumes:
+      - ./librechat.yaml:/app/librechat.yaml:ro
+      - ./librechat_data:/app/client/public/assets
+    depends_on:
+      - mongo
+    networks:
+      - ai-network
+
+  rag_api:
+    image: ghcr.io/danny-avila/librechat-rag-api-dev-lite:latest
+    container_name: rag_api
+    environment:
+      - RAG_API_KEY=${RAG_INTERNAL_API_KEY}
+      - DB_TYPE=local
+      - VECTOR_DB_TYPE=pgvector
+      - POSTGRES_HOST=db
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=librechat_rag
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=${POSTGRES_DB_PASSWORD}
+      - RAG_OPENAI_API_KEY=${OPENROUTER_API_KEY}
+      - RAG_OPENAI_BASEURL=https://openrouter.ai
+      - EMBEDDINGS_PROVIDER=openai
+      - EMBEDDINGS_MODEL=openai/text-embedding-3-small
+    volumes:
+      - ./rag_data:/app/data
+    depends_on:
+      - db
+    restart: always
+    networks:
+      - ai-network
+
+  db:
+    image: ankane/pgvector:v0.5.1
+    container_name: rag_postgres
+    environment:
+      - POSTGRES_DB=librechat_rag
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=${POSTGRES_DB_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks:
+      - ai-network
+    restart: always
+
+  mongo:
+    image: mongo:7-jammy
+    container_name: librechat-mongo
+    command: --wiredTigerCacheSizeGB 0.5
+    restart: unless-stopped
+    volumes:
+      - mongo-data:/data/db
+    networks:
+      - ai-network
+
+  nginx-proxy:
+    image: nginxproxy/nginx-proxy
+    container_name: nginx-proxy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - /var/run/docker.sock:/tmp/docker.sock:ro
+      - certs:/etc/nginx/certs
+      - vhost:/etc/nginx/vhost.d
+      - html:/usr/share/nginx/html
+    networks:
+      - ai-network
+
+  nginx-ssl-companion:
+    image: nginxproxy/acme-companion
+    container_name: nginx-ssl-companion
+    restart: unless-stopped
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - certs:/etc/nginx/certs
+      - vhost:/etc/nginx/vhost.d
+      - html:/usr/share/nginx/html
+      - acme:/etc/acme.sh
+    environment:
+      - DEFAULT_EMAIL=${LETSENCRYPT_EMAIL}
+      - NGINX_PROXY_CONTAINER=nginx-proxy
+    depends_on:
+      - nginx-proxy
+    networks:
+      - ai-network
+
+volumes:
+  certs:
+  vhost:
+  html:
+  acme:
+  mongo-data:
+  pgdata:
+
+networks:
+  ai-network:
