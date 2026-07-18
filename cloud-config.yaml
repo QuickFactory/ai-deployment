@@ -37,8 +37,8 @@ write_files:
 
       cd /opt/ai-stack
 
-      GITHUB_USER="your-username"
-      GITHUB_REPO="your-repo-name"
+      GITHUB_USER="QuickFactory"
+      GITHUB_REPO="ai-deployment"
       BRANCH="main"
       RAW_URL="https://githubusercontent.com{GITHUB_USER}/${GITHUB_REPO}/${BRANCH}"
 
