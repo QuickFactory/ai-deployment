@@ -132,7 +132,7 @@ write_files:
       EOF
       chmod +x /usr/bin/configure-ai
 
-  # 2. NEW: The automated safe shutdown script injected right onto the host
+  # 2. Automated safe shutdown script injected right onto the host
   - path: /opt/ai-stack/safeshut.sh
     permissions: '0755'
     owner: root:root
@@ -164,7 +164,6 @@ write_files:
       echo " 🎉 SHUTDOWN COMPLETE! YOUR DATA IS SAFE."
       echo "=========================================================="
 
-  # 3. Message of the day login banner
   - path: /etc/update-motd.d/99-ai-stack-status
     permissions: '0755'
     owner: root:root
