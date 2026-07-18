@@ -1,0 +1,304 @@
+#cloud-config
+
+ssh_pwauth: false
+disable_root: false
+
+package_update: true
+package_upgrade: true
+
+packages:
+  - curl
+  - gnupg
+  - lsb-release
+  - openssl
+  - git
+
+write_files:
+  # 1. Main Background Core Setup Script
+  - path: /opt/ai-stack/init-setup.sh
+    permissions: '0755'
+    owner: root:root
+    content: |
+      #!/bin/bash
+      set -e
+
+      # Create universal directory mountpoint placeholder
+      mkdir -p /mnt/ai-volume
+
+      # Non-destructively probe for hardware storage blocks across providers
+      TARGET_DEVICE=""
+      if [ -b /dev/vdb ]; then
+          TARGET_DEVICE="/dev/vdb"
+      elif [ -b /dev/sdb ]; then
+          TARGET_DEVICE="/dev/sdb"
+      fi
+
+      # Dynamically format and attach block targets only if hardware is active
+      if [ ! -z "$TARGET_DEVICE" ]; then
+          if ! blkid "$TARGET_DEVICE" > /dev/null 2>&1; then
+              mkfs.ext4 -F "$TARGET_DEVICE"
+          fi
+          if ! mountpoint -q /mnt/ai-volume; then
+              mount "$TARGET_DEVICE" /mnt/ai-volume
+              if ! grep -q "/mnt/ai-volume" /etc/fstab; then
+                  echo "${TARGET_DEVICE} /mnt/ai-volume ext4 defaults,noatime,nofail 0 0" >> /etc/fstab
+              fi
+          fi
+      fi
+
+      cd /opt/ai-stack
+
+      GITHUB_USER="QuickFactory"
+      GITHUB_REPO="ai-deployment"
+      BRANCH="main"
+      RAW_URL="https://raw.githubusercontent.com"
+      RAW_URL="${RAW_URL}/${GITHUB_USER}/${GITHUB_REPO}/${BRANCH}"
+
+      # Helper function for robust curl downloads with retries
+      robust_curl() {
+          local url=$1
+          local output=$2
+          local max_attempts=10
+          local delay=5
+
+          for i in $(seq 1 $max_attempts); do
+              if curl -sSL "$url" -o "$output"; then
+                  echo "Downloaded $output successfully on attempt $i."
+                  return 0
+              fi
+              echo "Failed to download $output from $url (attempt $i/$max_attempts). Retrying in $delay seconds..."
+              sleep $delay
+          done
+          echo "ERROR: Failed to download $output after $max_attempts attempts. Exiting."
+          exit 1
+      }
+
+      echo "=== 1. Pulling Core Configuration Manifests ==="
+      robust_curl "${RAW_URL}/docker-compose.yml" "docker-compose.yml"
+      robust_curl "${RAW_URL}/librechat.yaml" "librechat.yaml"
+
+      echo "=== 2. Adaptive Storage Layer Determination ==="
+      if mountpoint -q /mnt/ai-volume; then
+          echo "📁 Storage Volume detected. Mapping database matrices onto attached disk block..."
+          BASE_DATA_DIR="/mnt/ai-volume"
+      else
+          echo "💽 No volume attached. Isolating workspace tracks locally onto host storage drive..."
+          BASE_DATA_DIR="/opt/ai-stack/local_data"
+      fi
+
+      # Establish isolated workspace data directory trees
+      mkdir -p "${BASE_DATA_DIR}/hermes_data"
+      mkdir -p "${BASE_DATA_DIR}/rag_data"
+      mkdir -p "${BASE_DATA_DIR}/searxng"
+      mkdir -p "${BASE_DATA_DIR}/librechat_data"
+      mkdir -p "${BASE_DATA_DIR}/mongo_data"
+      mkdir -p "${BASE_DATA_DIR}/postgres_data"
+
+      # Relative symlink structures so that docker-compose files stay identical across topologies
+      ln -sfn "${BASE_DATA_DIR}/hermes_data" ./hermes_data
+      ln -sfn "${BASE_DATA_DIR}/rag_data" ./rag_data
+      ln -sfn "${BASE_DATA_DIR}/searxng" ./searxng
+      ln -sfn "${BASE_DATA_DIR}/librechat_data" ./librechat_data
+      ln -sfn "${BASE_DATA_DIR}/mongo_data" ./mongo_data
+      ln -sfn "${BASE_DATA_DIR}/postgres_data" ./postgres_data
+
+      # Forces the target binding paths to exist as empty files through the symlink layer
+      touch ./librechat_data/.env
+
+      if [ ! -f ./searxng/settings.yml ]; then
+          cat <<EOF > ./searxng/settings.yml
+      use_default_settings: true
+      server:
+        port: 8080
+        bind_address: "0.0.0.0"
+        secret_key: "$(openssl rand -hex 16)"
+      EOF
+      fi
+
+      touch ./searxng/settings.yml
+
+      # Create nginx-conf directory and placeholder file
+      # (must exist before Docker starts to prevent bind-mount becoming a directory)
+      mkdir -p ./nginx-conf
+      cat <<'PLACEHOLDER' > ./nginx-conf/hermes-9119.conf
+      # Placeholder — replaced by configure-ai after SSL certs are issued
+      PLACEHOLDER
+
+      echo "=== 3. Provisioning Production Docker Engine Pipeline ==="
+      mkdir -p /etc/apt/keyrings
+      if [ ! -f /etc/apt/keyrings/docker.gpg ]; then
+          curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+      fi
+      echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null
+      apt-get update
+      apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+
+      # Securely deploy the localized interactive setup wizard utility
+      cat <<'WRAPEOF' > /usr/bin/configure-ai
+      #!/bin/bash
+      cd /opt/ai-stack
+      if [ -f .env ]; then
+          echo "⚠️  An environment configuration payload (.env) is already present. Modify variables directly."
+          exit 1
+      fi
+
+      echo "=========================================================="
+      echo "   🚀 INITIALIZING CORE WORKSPACE PARAMETERS"
+      echo "=========================================================="
+      read -p "Enter your primary root domain address (e.g., ai.enabled.world): " USER_DOMAIN
+      read -p "Enter your Let's Encrypt notification Email: " USER_EMAIL
+      read -p "Paste your OpenRouter API key credential (sk-or-...): " USER_OR_KEY
+      read -p "Enter DuckDNS Subdomain identifier (e.g. mysub for mysub.duckdns.org): " DUCK_SUB
+      read -p "Enter DuckDNS account authentication Token: " DUCK_TOKEN
+      read -sp "Choose a password for the Hermes dashboard: " HERMES_PASSWORD
+      echo ""
+
+      echo "=== 🔄 Dispatched Dynamic Update Request to DuckDNS Hub ==="
+      DUCK_RESPONSE=$(curl -s "https://www.duckdns.org/update?domains=${DUCK_SUB}&token=${DUCK_TOKEN}&ip=")
+
+      if [ "$DUCK_RESPONSE" != "OK" ]; then
+          echo "❌ Routing Fault: DuckDNS sync failed. Verify token configuration values."
+          exit 1
+      fi
+
+      # Encrypted runtime security parameters compilation loop
+      RANDOM_JWT=$(openssl rand -hex 24)
+      RANDOM_REFRESH=$(openssl rand -hex 24)
+      RANDOM_DB_PASS=$(openssl rand -hex 16)
+      RANDOM_HERMES=$(openssl rand -hex 16)
+
+      cat <<EOT > .env
+      LIBRECHAT_DOMAIN=$USER_DOMAIN
+      LETSENCRYPT_EMAIL=$USER_EMAIL
+      OPENROUTER_API_KEY=$USER_OR_KEY
+      DUCKDNS_SUBDOMAIN=$DUCK_SUB
+      DUCKDNS_TOKEN=$DUCK_TOKEN
+      HERMES_INTERNAL_TOKEN=$RANDOM_HERMES
+      LIBRECHAT_JWT_SECRET=$RANDOM_JWT
+      LIBRECHAT_JWT_REFRESH_SECRET=$RANDOM_REFRESH
+      RAG_INTERNAL_API_KEY=$(openssl rand -hex 16)
+      POSTGRES_DB_PASSWORD=$RANDOM_DB_PASS
+      DISCORD_BOT_TOKEN=change_me_if_needed
+      DISCORD_CHANNEL_ID=change_me_if_needed
+      EOT
+
+      echo "✅ Local configuration settings saved."
+
+      echo "🚀 Starting Multi-Agent Orchestration Engine Cluster..."
+      docker compose --env-file .env up -d
+
+      echo "⏳ Waiting for Hermes to initialize (this may take 30 seconds)..."
+      sleep 30
+
+      echo "🔐 Configuring Hermes dashboard basic auth..."
+      HERMES_HASH=$(docker compose exec -T hermes python -c \
+          "from plugins.dashboard_auth.basic import hash_password; print(hash_password('${HERMES_PASSWORD}'))" 2>/dev/null)
+
+      if [ -z "$HERMES_HASH" ]; then
+          echo "⚠️  Could not generate Hermes password hash. The dashboard will be inaccessible."
+          echo "    Run the following manually after deployment:"
+          echo "    cd /opt/ai-stack && sudo docker compose exec hermes python -c \\"
+          echo "      \"from plugins.dashboard_auth.basic import hash_password; print(hash_password('your-password'))\""
+          echo "    Then inject the hash into /opt/data/config.yaml and restart hermes."
+      else
+          docker compose exec -T hermes bash -c "grep -q 'dashboard:' /opt/data/config.yaml || cat >> /opt/data/config.yaml << 'HERMESCFG'
+
+      dashboard:
+        basic_auth:
+          username: \"admin\"
+          password_hash: \"${HERMES_HASH}\"
+      HERMESCFG"
+          echo "✅ Hermes auth config injected. Restarting Hermes..."
+          docker compose up -d hermes
+          sleep 5
+      fi
+
+      echo "⚙️  Waiting for Let's Encrypt SSL certificates to be issued..."
+      for i in $(seq 1 30); do
+          if docker compose exec -T nginx-proxy test -f "/etc/nginx/certs/${USER_DOMAIN}/fullchain.pem" 2>/dev/null; then
+              echo "✅ SSL certificates found (attempt $i)."
+              break
+          fi
+          if [ $i -eq 30 ]; then
+              echo "⚠️  Timed out waiting for certificates. Port 9119 will not be available."
+              echo "    Run the following manually after certs are issued:"
+              echo "    cd /opt/ai-stack && sudo docker compose up -d nginx-proxy"
+          fi
+          sleep 10
+      done
+
+      if docker compose exec -T nginx-proxy test -f "/etc/nginx/certs/${USER_DOMAIN}/fullchain.pem" 2>/dev/null; then
+          echo "🔐 Activating Hermes port 9119 with SSL..."
+          cat <<EOL > ./nginx-conf/hermes-9119.conf
+      server {
+          listen 9119 ssl;
+          server_name ${USER_DOMAIN};
+
+          ssl_certificate     /etc/nginx/certs/${USER_DOMAIN}/fullchain.pem;
+          ssl_certificate_key /etc/nginx/certs/${USER_DOMAIN}/key.pem;
+          ssl_protocols TLSv1.2 TLSv1.3;
+          ssl_ciphers HIGH:!aNULL:!MD5;
+
+          location / {
+              proxy_pass http://hermes:9119;
+              proxy_http_version 1.1;
+              proxy_set_header Upgrade \$http_upgrade;
+              proxy_set_header Connection "upgrade";
+              proxy_set_header Host \$host;
+              proxy_set_header X-Real-IP \$remote_addr;
+              proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+              proxy_set_header X-Forwarded-Proto \$scheme;
+              proxy_read_timeout 3600s;
+          }
+      }
+      EOL
+
+          echo "🔄 Restarting nginx-proxy to load port 9119..."
+          docker compose restart nginx-proxy
+      fi
+
+      echo "🕐 Installing DuckDNS auto-refresh cron job (every 5 minutes)..."
+      (crontab -l 2>/dev/null; echo "*/5 * * * * curl -s 'https://www.duckdns.org/update?domains=${DUCK_SUB}&token=${DUCK_TOKEN}&ip=' > /dev/null 2>&1") | crontab -
+
+      echo "=========================================================="
+      echo " 🎉 Installation initialized! Workspace is now active."
+      echo "=========================================================="
+      echo "  LibreChat:        https://${USER_DOMAIN}/"
+      echo "  Hermes Dashboard: https://${USER_DOMAIN}:9119"
+      echo "    (login: admin / your chosen password)"
+      echo "=========================================================="
+      WRAPEOF
+
+      chmod +x /usr/bin/configure-ai
+
+  # 2. Dynamic SSH system access welcome message banner layout
+  - path: /etc/update-motd.d/99-ai-stack-status
+    permissions: '0755'
+    owner: root:root
+    content: |
+      #!/bin/bash
+      echo "==============================================================="
+      echo " 🌟 PORTABLE MULTI-AGENT AI DEPLOYMENT FRAMEWORK ONLINE"
+      echo "==============================================================="
+      if [ ! -f /opt/ai-stack/.env ]; then
+          echo " ➡️  To configure variables and finalize the stack setup, run:"
+          echo "    sudo configure-ai"
+      else
+          echo " ✅ Cluster services executing cleanly."
+          echo " 🛑 To stop containers or detach drives safely, run: sudo /opt/ai-stack/safeshut.sh"
+      fi
+      echo "==============================================================="
+
+runcmd:
+  # 1. Expand Virtual Memory (Swap) to stop 4GB RAM low-resource server OOM crashes
+  - if [ ! -f /swapfile ]; then fallocate -l 4G /swapfile && chmod 600 /swapfile && mkswap /swapfile && swapon /swapfile && echo '/swapfile none swap sw 0 0' >> /etc/fstab; fi
+
+  # 2. Configure Docker daemon for native IPv6 network mapping compatibility
+  - mkdir -p /etc/docker
+  - echo '{"ipv6":true,"fixed-cidr-v6":"fd00::/80","ip6tables":true}' > /etc/docker/daemon.json
+  - systemctl restart docker || true
+
+  # 3. Enter your workspace application repository tree and run setup
+  - mkdir -p /opt/ai-stack
+  - cd /opt/ai-stack
+  - bash /opt/ai-stack/init-setup.sh

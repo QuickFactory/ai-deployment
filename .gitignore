@@ -1,0 +1,45 @@
+# ==========================================
+# 1. Environment and Secrets Profiles
+# ==========================================
+# Block all live local environment files containing real API keys
+.env
+.env.production
+.env.local
+
+# Allow the tracking example template to stay visible to users
+!.env.example
+
+# ==========================================
+# 2. Local Stack Persistent Data Stores
+# ==========================================
+# Keep application data and message history states localized to the VPS
+hermes_data/
+rag_data/
+librechat_data/
+searxng/
+
+# Block Docker engine dynamic named volumes if mounted locally
+postgres_data/
+mongo_data/
+
+# ==========================================
+# 3. Web Proxy, Cache, and SSL Footprints
+# ==========================================
+# Prevent security keys or Let's Encrypt certificates from tracking
+certs/
+vhost.d/
+html/
+acme/
+
+# ==========================================
+# 4. Standard OS and Editor Remnants
+# ==========================================
+# System Specifics
+.DS_Store
+Thumbs.db
+
+# Workspace Specifics
+.idea/
+.vscode/
+*.swp
+*.log
