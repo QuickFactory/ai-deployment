@@ -61,6 +61,11 @@ Cloud-Init is supported natively by **Hetzner, DigitalOcean, Linode, AWS, and GC
 2. Spin up a new Server (Minimum required: **Ubuntu 22.04 LTS / 24.04 LTS**). Select your configured SSH key.
 3. Expand the **User Data / Cloud-Init** option and paste the entire contents of the `cloud-config.yaml` file from this repository.
 4. Launch the server.
+5. 
+### 💽 Hard Drive & Block Storage Volume Configuration
+This configuration expects an external **Hetzner Volume** to be attached to your instance during creation. 
+
+The setup initialization sequence automatically formats the storage block as an encrypted or native `ext4` partition, mounts it under `/mnt/ai-volume`, and maps all vector index tables and database operations onto it to preserve your local OS disk space.
 
 ### Finishing Configuration:
 Once the system state transitions to active, SSH directly into your server. You will be greeted with an interactive system configuration banner. Run:
