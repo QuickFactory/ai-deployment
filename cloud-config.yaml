@@ -13,8 +13,6 @@ packages:
   - openssl
   - git
 
-# Automatically mount your Hetzner Volume by its device path
-# Hetzner usually attaches the first volume as /dev/sdb or /dev/vdb
 fs_setup:
   - device: /dev/sdb
     filesystem: ext4
@@ -24,6 +22,7 @@ mounts:
   - [ /dev/sdb, /mnt/ai-volume, "ext4", "defaults,noatime,nofail", "0", "0" ]
 
 write_files:
+  # 1. Core initialization script that runs in the background on boot
   - path: /opt/ai-stack/init-setup.sh
     permissions: '0755'
     owner: root:root
@@ -31,17 +30,13 @@ write_files:
       #!/bin/bash
       set -e
 
-      # Ensure the Hetzner Volume mountpoint is ready and writable
       mkdir -p /mnt/ai-volume
-      
-      # Fallback check: if /dev/sdb doesn't exist, try /dev/vdb (Hetzner KVM standard)
       if ! mountpoint -q /mnt/ai-volume; then
           mount /dev/vdb /mnt/ai-volume 2>/dev/null || mount /dev/sdb /mnt/ai-volume 2>/dev/null || true
       fi
 
       cd /opt/ai-stack
 
-      # Configuration Settings - Pointing to your public tracking repo
       GITHUB_USER="your-username"
       GITHUB_REPO="your-repo-name"
       BRANCH="main"
@@ -52,7 +47,6 @@ write_files:
       curl -sSL "${RAW_URL}/librechat.yaml" -o librechat.yaml
 
       echo "=== 2. Creating Persistent Directories on Hetzner Volume ==="
-      # Placing high-write databases and histories on the attached volume
       mkdir -p /mnt/ai-volume/hermes_data
       mkdir -p /mnt/ai-volume/rag_data
       mkdir -p /mnt/ai-volume/searxng
@@ -60,7 +54,6 @@ write_files:
       mkdir -p /mnt/ai-volume/mongo_data
       mkdir -p /mnt/ai-volume/postgres_data
 
-      # Create local symlinks so Docker Compose syntax stays completely clean
       ln -sfn /mnt/ai-volume/hermes_data ./hermes_data
       ln -sfn /mnt/ai-volume/rag_data ./rag_data
       ln -sfn /mnt/ai-volume/searxng ./searxng
@@ -139,7 +132,39 @@ write_files:
       EOF
       chmod +x /usr/local/bin/configure-ai
 
-   bondage:
+  # 2. NEW: The automated safe shutdown script injected right onto the host
+  - path: /opt/ai-stack/safeshut.sh
+    permissions: '0755'
+    owner: root:root
+    content: |
+      #!/bin/bash
+      set -e
+      if [ "$EUID" -ne 0 ]; then
+        echo "❌ Error: Please execute this script using sudo (sudo ./safeshut.sh)"
+        exit 1
+      fi
+      cd /opt/ai-stack
+      echo "=========================================================="
+      echo " 🛑 INITIATING GRACEFUL AI STACK SHUTDOWN SEQUENCE"
+      echo "=========================================================="
+      if [ -f docker-compose.yml ]; then
+          echo "=== 1. Stopping Containers & Flushing DB Memory Cache ==="
+          docker compose down --timeout 30
+          echo "✅ Containers stopped and memory caches flushed to disk."
+      fi
+      echo "=== 2. Syncing Filesystem Operations ==="
+      sync
+      sleep 2
+      echo "=== 3. Detaching Hetzner Block Storage Volume Safely ==="
+      if mountpoint -q /mnt/ai-volume; then
+          umount /mnt/ai-volume
+          echo "✅ /mnt/ai-volume unmounted successfully."
+      fi
+      echo "=========================================================="
+      echo " 🎉 SHUTDOWN COMPLETE! YOUR DATA IS SAFE."
+      echo "=========================================================="
+
+  # 3. Message of the day login banner
   - path: /etc/update-motd.d/99-ai-stack-status
     permissions: '0755'
     owner: root:root
@@ -152,11 +177,11 @@ write_files:
           echo " ➡️  Run: sudo configure-ai"
       else
           echo " ✅ Services running smoothly on attached block storage volume."
+          echo " 🛑 To safely pause billing at any time, run: sudo /opt/ai-stack/safeshut.sh"
       fi
       echo "==============================================================="
 
 runcmd:
-  # Move the 4GB System Swap allocation directly to the root local disk to protect volume IO speeds
   - if [ ! -f /swapfile ]; then fallocate -l 4G /swapfile && chmod 600 /swapfile && mkswap /swapfile && swapon /swapfile && echo '/swapfile none swap sw 0 0' >> /etc/fstab; fi
   - mkdir -p /etc/docker
   - echo '{"ipv6":true,"fixed-cidr-v6":"fd00::/80","ip6tables":true}' > /etc/docker/daemon.json
