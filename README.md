@@ -61,7 +61,7 @@ Cloud-Init is supported natively by **Hetzner, DigitalOcean, Linode, AWS, and GC
 2. Spin up a new Server (Minimum required: **Ubuntu 22.04 LTS / 24.04 LTS**). Select your configured SSH key.
 3. Expand the **User Data / Cloud-Init** option and paste the entire contents of the `cloud-config.yaml` file from this repository.
 4. Launch the server.
-5. 
+
 ### 💽 Hard Drive & Block Storage Volume Configuration
 This configuration expects an external **Hetzner Volume** to be attached to your instance during creation. 
 
@@ -127,3 +127,28 @@ sudo docker compose --env-file .env up -d
 ## 🔒 Security Post-Install Recommendations
 * **User Registrations**: By default, `ALLOW_REGISTRATION=true` is enabled in `docker-compose.yml` to let you create your initial administrative user account. Once your account is configured, update this value to `false` and rebuild the container cluster (`docker compose up -d`) to lock down registrations.
 * **Internal Routing Token Authentication**: The `configure-ai` utility automatically handles generating localized random high-entropy alphanumeric strings for MongoDB and pgvector backends securely on the fly.
+
+---
+
+## 💰 How to Pause the Stack to Save Money (Snapshot & Delete)
+
+Because Hetzner charges for a VPS even when it is turned off, you can use the **Snapshot + External Volume** approach to drop your server billing costs to zero when you aren't using the stack.
+
+### 🛑 To Pause and Stop Billing:
+1. SSH into your Hetzner VPS.
+2. Run the safe shutdown script to flush databases and detach your hard disk:
+   ```bash
+   sudo /opt/ai-stack/safeshut.sh
+   ```
+3. Log into the **Hetzner Cloud Console**.
+4. Navigate to your server ➔ **Snapshots** ➔ Click **Take Snapshot**. (This saves your base setup image).
+5. Navigate to **Volumes** and explicitly click **Detach** on your volume if it hasn't unlinked yet.
+6. Go back to your Server ➔ Click **Delete**. **(Your billing for the computing server drops to zero immediately. You only pay a few cents per month for the volume and snapshot storage.)**
+
+### 🚀 To Resume and Restore Everything:
+1. Go to **Hetzner Cloud Console** ➔ Click **Add Server**.
+2. For **Image**, click the **Snapshots** tab and select your saved system image.
+3. Under the **Volumes** section, check the box next to your existing detached volume to reattach it.
+4. Launch the server.
+5. Because our Cloud-Init template contains non-destructive loops, your server will automatically re-mount the drive on boot. Your domains, accounts, chats, and vectors will pop straight back online exactly where you left them!
+
