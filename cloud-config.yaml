@@ -51,12 +51,31 @@ write_files:
       GITHUB_USER="QuickFactory"
       GITHUB_REPO="ai-deployment"
       BRANCH="main"
-      RAW_URL="https://githubusercontent.com"
+      RAW_URL="https://raw.githubusercontent.com" # CORRECTED URL
       RAW_URL="${RAW_URL}/${GITHUB_USER}/${GITHUB_REPO}/${BRANCH}"
 
+      # Helper function for robust curl downloads with retries
+      robust_curl() {
+          local url=$1
+          local output=$2
+          local max_attempts=10  # Number of retry attempts
+          local delay=5          # Delay between attempts in seconds
+
+          for i in $(seq 1 $max_attempts); do
+              if curl -sSL "$url" -o "$output"; then
+                  echo "Downloaded $output successfully on attempt $i."
+                  return 0
+              fi
+              echo "Failed to download $output from $url (attempt $i/$max_attempts). Retrying in $delay seconds..."
+              sleep $delay
+          done
+          echo "ERROR: Failed to download $output after $max_attempts attempts. Exiting."
+          exit 1
+      }
+
       echo "=== 1. Pulling Core Configuration Manifests ==="
-      curl -sSL "${RAW_URL}/docker-compose.yml" -o docker-compose.yml
-      curl -sSL "${RAW_URL}/librechat.yaml" -o librechat.yaml
+      robust_curl "${RAW_URL}/docker-compose.yml" "docker-compose.yml"
+      robust_curl "${RAW_URL}/librechat.yaml" "librechat.yaml"
 
       echo "=== 2. Adaptive Storage Layer Determination ==="
       if mountpoint -q /mnt/ai-volume; then
@@ -96,9 +115,9 @@ write_files:
       echo "=== 3. Provisioning Production Docker Engine Pipeline ==="
       mkdir -p /etc/apt/keyrings
       if [ ! -f /etc/apt/keyrings/docker.gpg ]; then
-          curl -fsSL https://docker.com | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+          curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg # CORRECTED DOCKER GPG URL
       fi
-      echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://docker.com $(lsb_release -cs) stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null
+      echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null
       apt-get update
       apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
 
