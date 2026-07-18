@@ -13,16 +13,6 @@ packages:
   - openssl
   - git
 
-# Configured to look for secondary block hardware non-destructively
-fs_setup:
-  - device: /dev/sdb
-    filesystem: ext4
-    overwrite: false
-
-# Uses nofail to guarantee boot completion even if no volume is attached
-mounts:
-  - [ /dev/sdb, /mnt/ai-volume, "ext4", "defaults,noatime,nofail", "0", "0" ]
-
 write_files:
   - path: /opt/ai-stack/init-setup.sh
     permissions: '0755'
@@ -31,10 +21,40 @@ write_files:
       #!/bin/bash
       set -e
 
-      mkdir -p /mnt/ai-volume
-      # Dynamically evaluate if an active block drive mountpoint can be recovered
-      if ! mountpoint -q /mnt/ai-volume; then
-          mount /dev/vdb /mnt/ai-volume 2>/dev/null || mount /dev/sdb /mnt/ai-volume 2>/dev/null || true
+      echo "=== Step 1: Evaluating Block Storage Topology ==="
+      # 🔍 Search across common virtualization block markers (Hetzner KVM / Standard SCSI)
+      TARGET_DEVICE=""
+      for dev in /dev/vdb /dev/sdb /dev/xvdb; do
+          if [ -b "$dev" ]; then
+              TARGET_DEVICE="$dev"
+              break
+          fi
+      done
+
+      # Adaptive mount sequence
+      if [ -not -z "$TARGET_DEVICE" ]; then
+          echo "📁 Physical block device located at ${TARGET_DEVICE}."
+          mkdir -p /mnt/ai-volume
+          
+          # Proactively check if the volume already contains a valid filesystem partition layout
+          if ! blkid "$TARGET_DEVICE" >/dev/null 2>&1; then
+              echo "💽 Disk array is unformatted. Initializing ext4 file system architecture..."
+              mkfs.ext4 -F "$TARGET_DEVICE"
+          fi
+          
+          # Mount the drive safely
+          mount -o defaults,noatime "$TARGET_DEVICE" /mnt/ai-volume
+          
+          # Write it into fstab dynamically with the nofail flag to guarantee safe future system boots
+          if ! grep -q "/mnt/ai-volume" /etc/fstab; then
+              echo "${TARGET_DEVICE} /mnt/ai-volume ext4 defaults,noatime,nofail 0 0" >> /etc/fstab
+          fi
+          
+          echo "✅ External volume integrated cleanly under /mnt/ai-volume."
+          BASE_DATA_DIR="/mnt/ai-volume"
+      else
+          echo "💽 Zero additional block arrays recognized. Routing persistent layers into Local SSD drive workspace..."
+          BASE_DATA_DIR="/opt/ai-stack/local_data"
       fi
 
       cd /opt/ai-stack
@@ -44,21 +64,11 @@ write_files:
       BRANCH="main"
       RAW_URL="https://githubusercontent.com{GITHUB_USER}/${GITHUB_REPO}/${BRANCH}"
 
-      echo "=== 1. Core Config Retrieval ==="
+      echo "=== Step 2: Retrieving Configuration Payload ==="
       curl -sSL "${RAW_URL}/docker-compose.yml" -o docker-compose.yml
       curl -sSL "${RAW_URL}/librechat.yaml" -o librechat.yaml
 
-      echo "=== 2. Resolving Target Persistent Storage Space ==="
-      # Adaptive fallback logic
-      if mountpoint -q /mnt/ai-volume; then
-          echo "📁 External storage block discovered. Offloading high-write filesystems to Volume..."
-          BASE_DATA_DIR="/mnt/ai-volume"
-      else
-          echo "💽 No volume detected. Creating local storage clusters inside the application folder..."
-          BASE_DATA_DIR="/opt/ai-stack/local_data"
-      fi
-
-      # Dynamically provision folders on the selected destination path
+      echo "=== Step 3: Compiling Directory Schemas ==="
       mkdir -p "${BASE_DATA_DIR}/hermes_data"
       mkdir -p "${BASE_DATA_DIR}/rag_data"
       mkdir -p "${BASE_DATA_DIR}/searxng"
@@ -66,7 +76,7 @@ write_files:
       mkdir -p "${BASE_DATA_DIR}/mongo_data"
       mkdir -p "${BASE_DATA_DIR}/postgres_data"
 
-      # Symlink structures so that docker-compose can remain identical in both modes
+      # Relative symbolic maps linking matching docker-compose patterns uniformly
       ln -sfn "${BASE_DATA_DIR}/hermes_data" ./hermes_data
       ln -sfn "${BASE_DATA_DIR}/rag_data" ./rag_data
       ln -sfn "${BASE_DATA_DIR}/searxng" ./searxng
@@ -84,7 +94,7 @@ write_files:
       EOF
       fi
 
-      echo "=== 3. Deploying Base Engine Dependencies ==="
+      echo "=== Step 4: Deploying Base Engine Dependencies ==="
       mkdir -p /etc/apt/keyrings
       if [ ! -f /etc/apt/keyrings/docker.gpg ]; then
           curl -fsSL https://docker.com | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
@@ -93,6 +103,7 @@ write_files:
       apt-get update
       apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
 
+      # The global administration interactive configuration installer binary
       cat <<'EOF' > /usr/bin/configure-ai
       #!/bin/bash
       cd /opt/ai-stack
@@ -144,7 +155,7 @@ write_files:
       EOF
       chmod +x /usr/bin/configure-ai
 
-  # 2. Updated safe shutdown script with adaptive unmounting parameters
+  # 2. Automated safe shutdown script injected right onto the host
   - path: /opt/ai-stack/safeshut.sh
     permissions: '0755'
     owner: root:root
@@ -178,19 +189,20 @@ write_files:
       echo " 🎉 SHUTDOWN COMPLETE! YOUR DATA IS SAFE."
       echo "=========================================================="
 
+  # 3. Message of the day login banner
   - path: /etc/update-motd.d/99-ai-stack-status
     permissions: '0755'
     owner: root:root
     content: |
       #!/bin/bash
       echo "==============================================================="
-      echo " 🌟 AI INFRASTRUCTURE INTERFACE ONLINE"
+      echo " 🌟 AI INFRASTRUCTURE ACTIVE"
       echo "==============================================================="
       if [ ! -f /opt/ai-stack/.env ]; then
           echo " ➡️  Run: sudo configure-ai"
       else
           echo " ✅ Services running smoothly."
-          echo " 🛑 To safely stop or pause billing at any time, run: sudo /opt/ai-stack/safeshut.sh"
+          echo " 🛑 To safely pause billing at any time, run: sudo /opt/ai-stack/safeshut.sh"
       fi
       echo "==============================================================="
 
