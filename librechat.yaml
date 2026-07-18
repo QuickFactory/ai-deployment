@@ -1,0 +1,84 @@
+version: "1.1.5"
+
+webSearch:
+  searchProvider: "searxng"
+  scraper: "cheerio"
+  reranker: "none"
+  searxngServiceUrl: "http://searxng:8080"
+
+endpoints:
+  custom:
+    # ====== DIRECT OPENROUTER ENDPOINT ======
+    - name: "OpenRouter"
+      apiKey: "${OPENROUTER_KEY}"
+      baseURL: "https://openrouter.ai"
+      models:
+        fetch: true
+        default:
+          - "google/gemma-4-26b-a4b-it"
+          - "google/gemini-2.5-flash"
+          - "openai/gpt-4o-mini"
+          - "google/gemini-2.5-flash:free"
+      titleConvo: true
+      titleModel: "google/gemini-2.5-flash"
+      summarize: true
+      plugins: true
+
+    # ====== HERMES CORE ENGINE AGENT ======
+    - name: "Hermes Agent"
+      apiKey: "${HERMES_INTERNAL_TOKEN}"
+      baseURL: "http://hermes:8642/v1"
+      models:
+        fetch: false
+        default:
+          - "google/gemini-2.5-flash"
+      titleConvo: true
+      titleModel: "google/gemini-2.5-flash"
+      summarize: false
+
+  agents:
+    maxCitations: 15
+    maxCitationsPerFile: 7
+    minRelevanceScore: 0.5
+
+interface:
+  modelSelect: true
+  presets: true
+  parameters: true
+  privacyPolicy:
+    externalUrl: "https://librechat.ai"
+    openNewTab: true
+  termsOfService:
+    externalUrl: "https://librechat.ai"
+    openNewTab: true
+  plugins:
+    customSearxConfig:
+      searxNavigationLinks: true
+  fileSearch: true
+  fileCitations: true
+
+fileConfig:
+  fileTokenLimit: 100000
+  ocr:
+    supportedMimeTypes:
+      - "application/pdf"
+      - "image/.*"
+
+modelSpecs:
+  prioritize: true
+  enforce: false
+  list:
+    - name: "hermes-agent-spec"
+      label: "Hermes Core Agent Engine"
+      softDefault: true
+      preset:
+        endpoint: "Hermes Agent"
+        model: "google/gemini-2.5-flash"
+      fileSearch: true
+
+    - name: "gemini-flash-budget"
+      label: "Gemini Flash (Cheapest & Fast)"
+      preset:
+        endpoint: "OpenRouter"
+        model: "google/gemini-2.5-flash"
+      fileSearch: true
