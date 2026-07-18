@@ -13,16 +13,17 @@ packages:
   - openssl
   - git
 
+# Configured to look for secondary block hardware non-destructively
 fs_setup:
   - device: /dev/sdb
     filesystem: ext4
     overwrite: false
 
+# Uses nofail to guarantee boot completion even if no volume is attached
 mounts:
   - [ /dev/sdb, /mnt/ai-volume, "ext4", "defaults,noatime,nofail", "0", "0" ]
 
 write_files:
-  # 1. Core initialization script that runs in the background on boot
   - path: /opt/ai-stack/init-setup.sh
     permissions: '0755'
     owner: root:root
@@ -31,6 +32,7 @@ write_files:
       set -e
 
       mkdir -p /mnt/ai-volume
+      # Dynamically evaluate if an active block drive mountpoint can be recovered
       if ! mountpoint -q /mnt/ai-volume; then
           mount /dev/vdb /mnt/ai-volume 2>/dev/null || mount /dev/sdb /mnt/ai-volume 2>/dev/null || true
       fi
@@ -46,23 +48,34 @@ write_files:
       curl -sSL "${RAW_URL}/docker-compose.yml" -o docker-compose.yml
       curl -sSL "${RAW_URL}/librechat.yaml" -o librechat.yaml
 
-      echo "=== 2. Creating Persistent Directories on Hetzner Volume ==="
-      mkdir -p /mnt/ai-volume/hermes_data
-      mkdir -p /mnt/ai-volume/rag_data
-      mkdir -p /mnt/ai-volume/searxng
-      mkdir -p /mnt/ai-volume/librechat_data
-      mkdir -p /mnt/ai-volume/mongo_data
-      mkdir -p /mnt/ai-volume/postgres_data
+      echo "=== 2. Resolving Target Persistent Storage Space ==="
+      # Adaptive fallback logic
+      if mountpoint -q /mnt/ai-volume; then
+          echo "📁 External storage block discovered. Offloading high-write filesystems to Volume..."
+          BASE_DATA_DIR="/mnt/ai-volume"
+      else
+          echo "💽 No volume detected. Creating local storage clusters inside the application folder..."
+          BASE_DATA_DIR="/opt/ai-stack/local_data"
+      fi
 
-      ln -sfn /mnt/ai-volume/hermes_data ./hermes_data
-      ln -sfn /mnt/ai-volume/rag_data ./rag_data
-      ln -sfn /mnt/ai-volume/searxng ./searxng
-      ln -sfn /mnt/ai-volume/librechat_data ./librechat_data
-      ln -sfn /mnt/ai-volume/mongo_data ./mongo_data
-      ln -sfn /mnt/ai-volume/postgres_data ./postgres_data
+      # Dynamically provision folders on the selected destination path
+      mkdir -p "${BASE_DATA_DIR}/hermes_data"
+      mkdir -p "${BASE_DATA_DIR}/rag_data"
+      mkdir -p "${BASE_DATA_DIR}/searxng"
+      mkdir -p "${BASE_DATA_DIR}/librechat_data"
+      mkdir -p "${BASE_DATA_DIR}/mongo_data"
+      mkdir -p "${BASE_DATA_DIR}/postgres_data"
 
-      if [ ! -f /mnt/ai-volume/searxng/settings.yml ]; then
-          cat <<EOF > /mnt/ai-volume/searxng/settings.yml
+      # Symlink structures so that docker-compose can remain identical in both modes
+      ln -sfn "${BASE_DATA_DIR}/hermes_data" ./hermes_data
+      ln -sfn "${BASE_DATA_DIR}/rag_data" ./rag_data
+      ln -sfn "${BASE_DATA_DIR}/searxng" ./searxng
+      ln -sfn "${BASE_DATA_DIR}/librechat_data" ./librechat_data
+      ln -sfn "${BASE_DATA_DIR}/mongo_data" ./mongo_data
+      ln -sfn "${BASE_DATA_DIR}/postgres_data" ./postgres_data
+
+      if [ ! -f ./searxng/settings.yml ]; then
+          cat <<EOF > ./searxng/settings.yml
       use_default_settings: true
       server:
         port: 8080
@@ -80,7 +93,6 @@ write_files:
       apt-get update
       apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
 
-      # Interactive setup wizard script
       cat <<'EOF' > /usr/bin/configure-ai
       #!/bin/bash
       cd /opt/ai-stack
@@ -90,7 +102,7 @@ write_files:
       fi
 
       echo "=========================================================="
-      echo "   🚀 INITIALIZING STORAGE-OPTIMISED AI-STACK"
+      echo "   🚀 INITIALIZING SYSTEM CONFIGURATION"
       echo "=========================================================="
       read -p "Enter your primary root domain (e.g., ai.enabled.world): " USER_DOMAIN
       read -p "Enter your Let's Encrypt Email: " USER_EMAIL
@@ -128,11 +140,11 @@ write_files:
 
       echo "✅ Environment compiled. Starting Docker Stack containers..."
       docker compose --env-file .env up -d
-      echo "🎉 Cluster active! Persistent records are safely isolated on your Hetzner Volume."
+      echo "🎉 Cluster active!"
       EOF
       chmod +x /usr/bin/configure-ai
 
-  # 2. Automated safe shutdown script injected right onto the host
+  # 2. Updated safe shutdown script with adaptive unmounting parameters
   - path: /opt/ai-stack/safeshut.sh
     permissions: '0755'
     owner: root:root
@@ -155,10 +167,12 @@ write_files:
       echo "=== 2. Syncing Filesystem Operations ==="
       sync
       sleep 2
-      echo "=== 3. Detaching Hetzner Block Storage Volume Safely ==="
+      echo "=== 3. Detaching Block Storage Volume Safely ==="
       if mountpoint -q /mnt/ai-volume; then
           umount /mnt/ai-volume
           echo "✅ /mnt/ai-volume unmounted successfully."
+      else
+          echo "ℹ️  No external volume was mounted. Local drive blocks synchronized."
       fi
       echo "=========================================================="
       echo " 🎉 SHUTDOWN COMPLETE! YOUR DATA IS SAFE."
@@ -170,13 +184,13 @@ write_files:
     content: |
       #!/bin/bash
       echo "==============================================================="
-      echo " 🌟 STORAGE-BOUND AI INFRASTRUCTURE ACTIVE"
+      echo " 🌟 AI INFRASTRUCTURE INTERFACE ONLINE"
       echo "==============================================================="
       if [ ! -f /opt/ai-stack/.env ]; then
           echo " ➡️  Run: sudo configure-ai"
       else
-          echo " ✅ Services running smoothly on attached block storage volume."
-          echo " 🛑 To safely pause billing at any time, run: sudo /opt/ai-stack/safeshut.sh"
+          echo " ✅ Services running smoothly."
+          echo " 🛑 To safely stop or pause billing at any time, run: sudo /opt/ai-stack/safeshut.sh"
       fi
       echo "==============================================================="
 
