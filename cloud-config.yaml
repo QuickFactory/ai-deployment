@@ -81,7 +81,7 @@ write_files:
       apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
 
       # Interactive setup wizard script
-      cat <<'EOF' > /usr/local/bin/configure-ai
+      cat <<'EOF' > /usr/bin/configure-ai
       #!/bin/bash
       cd /opt/ai-stack
       if [ -f .env ]; then
@@ -130,7 +130,7 @@ write_files:
       docker compose --env-file .env up -d
       echo "🎉 Cluster active! Persistent records are safely isolated on your Hetzner Volume."
       EOF
-      chmod +x /usr/local/bin/configure-ai
+      chmod +x /usr/bin/configure-ai
 
   # 2. NEW: The automated safe shutdown script injected right onto the host
   - path: /opt/ai-stack/safeshut.sh
