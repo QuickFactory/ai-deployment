@@ -14,6 +14,7 @@ packages:
   - git
 
 write_files:
+  # 1. Main Background Core Setup Script
   - path: /opt/ai-stack/init-setup.sh
     permissions: '0755'
     owner: root:root
@@ -21,40 +22,28 @@ write_files:
       #!/bin/bash
       set -e
 
-      echo "=== Step 1: Evaluating Block Storage Topology ==="
-      # 🔍 Search across common virtualization block markers (Hetzner KVM / Standard SCSI)
-      TARGET_DEVICE=""
-      for dev in /dev/vdb /dev/sdb /dev/xvdb; do
-          if [ -b "$dev" ]; then
-              TARGET_DEVICE="$dev"
-              break
-          fi
-      done
+      # Create universal directory mountpoint placeholder
+      mkdir -p /mnt/ai-volume
 
-      # Adaptive mount sequence
-      if [ -not -z "$TARGET_DEVICE" ]; then
-          echo "📁 Physical block device located at ${TARGET_DEVICE}."
-          mkdir -p /mnt/ai-volume
-          
-          # Proactively check if the volume already contains a valid filesystem partition layout
-          if ! blkid "$TARGET_DEVICE" >/dev/null 2>&1; then
-              echo "💽 Disk array is unformatted. Initializing ext4 file system architecture..."
+      # Non-destructively probe for hardware storage blocks across providers
+      TARGET_DEVICE=""
+      if [ -b /dev/vdb ]; then
+          TARGET_DEVICE="/dev/vdb"
+      elif [ -b /dev/sdb ]; then
+          TARGET_DEVICE="/dev/sdb"
+      fi
+
+      # Dynamically format and attach block targets only if hardware is active
+      if [ ! -z "$TARGET_DEVICE" ]; then
+          if ! blkid "$TARGET_DEVICE" > /dev/null 2>&1; then
               mkfs.ext4 -F "$TARGET_DEVICE"
           fi
-          
-          # Mount the drive safely
-          mount -o defaults,noatime "$TARGET_DEVICE" /mnt/ai-volume
-          
-          # Write it into fstab dynamically with the nofail flag to guarantee safe future system boots
-          if ! grep -q "/mnt/ai-volume" /etc/fstab; then
-              echo "${TARGET_DEVICE} /mnt/ai-volume ext4 defaults,noatime,nofail 0 0" >> /etc/fstab
+          if ! mountpoint -q /mnt/ai-volume; then
+              mount "$TARGET_DEVICE" /mnt/ai-volume
+              if ! grep -q "/mnt/ai-volume" /etc/fstab; then
+                  echo "${TARGET_DEVICE} /mnt/ai-volume ext4 defaults,noatime,nofail 0 0" >> /etc/fstab
+              fi
           fi
-          
-          echo "✅ External volume integrated cleanly under /mnt/ai-volume."
-          BASE_DATA_DIR="/mnt/ai-volume"
-      else
-          echo "💽 Zero additional block arrays recognized. Routing persistent layers into Local SSD drive workspace..."
-          BASE_DATA_DIR="/opt/ai-stack/local_data"
       fi
 
       cd /opt/ai-stack
@@ -64,11 +53,20 @@ write_files:
       BRANCH="main"
       RAW_URL="https://githubusercontent.com{GITHUB_USER}/${GITHUB_REPO}/${BRANCH}"
 
-      echo "=== Step 2: Retrieving Configuration Payload ==="
+      echo "=== 1. Pulling Core Configuration Manifests ==="
       curl -sSL "${RAW_URL}/docker-compose.yml" -o docker-compose.yml
       curl -sSL "${RAW_URL}/librechat.yaml" -o librechat.yaml
 
-      echo "=== Step 3: Compiling Directory Schemas ==="
+      echo "=== 2. Adaptive Storage Layer Determination ==="
+      if mountpoint -q /mnt/ai-volume; then
+          echo "📁 Storage Volume detected. Mapping database matrices onto attached disk block..."
+          BASE_DATA_DIR="/mnt/ai-volume"
+      else
+          echo "💽 No volume attached. Isolating workspace tracks locally onto host storage drive..."
+          BASE_DATA_DIR="/opt/ai-stack/local_data"
+      fi
+
+      # Establish isolated workspace data directory trees
       mkdir -p "${BASE_DATA_DIR}/hermes_data"
       mkdir -p "${BASE_DATA_DIR}/rag_data"
       mkdir -p "${BASE_DATA_DIR}/searxng"
@@ -76,7 +74,7 @@ write_files:
       mkdir -p "${BASE_DATA_DIR}/mongo_data"
       mkdir -p "${BASE_DATA_DIR}/postgres_data"
 
-      # Relative symbolic maps linking matching docker-compose patterns uniformly
+      # Relative symlink structures so that docker-compose files stay identical across topologies
       ln -sfn "${BASE_DATA_DIR}/hermes_data" ./hermes_data
       ln -sfn "${BASE_DATA_DIR}/rag_data" ./rag_data
       ln -sfn "${BASE_DATA_DIR}/searxng" ./searxng
@@ -94,7 +92,7 @@ write_files:
       EOF
       fi
 
-      echo "=== Step 4: Deploying Base Engine Dependencies ==="
+      echo "=== 3. Provisioning Production Docker Engine Pipeline ==="
       mkdir -p /etc/apt/keyrings
       if [ ! -f /etc/apt/keyrings/docker.gpg ]; then
           curl -fsSL https://docker.com | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
@@ -103,32 +101,33 @@ write_files:
       apt-get update
       apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
 
-      # The global administration interactive configuration installer binary
+      # Securely deploy the localized interactive setup wizard utility
       cat <<'EOF' > /usr/bin/configure-ai
       #!/bin/bash
       cd /opt/ai-stack
       if [ -f .env ]; then
-          echo "⚠️  An environment setup file already exists. Modify /opt/ai-stack/.env directly."
+          echo "⚠️  An environment configuration payload (.env) is already present. Modify variables directly."
           exit 1
       fi
 
       echo "=========================================================="
-      echo "   🚀 INITIALIZING SYSTEM CONFIGURATION"
+      echo "   🚀 INITIALIZING CORE WORKSPACE PARAMETERS"
       echo "=========================================================="
-      read -p "Enter your primary root domain (e.g., ai.enabled.world): " USER_DOMAIN
-      read -p "Enter your Let's Encrypt Email: " USER_EMAIL
-      read -p "Paste your OpenRouter API Key (sk-or-...): " USER_OR_KEY
-      read -p "Enter DuckDNS Subdomain (e.g., mysubdomain): " DUCK_SUB
-      read -p "Enter DuckDNS Token: " DUCK_TOKEN
+      read -p "Enter your primary root domain address (e.g., ai.enabled.world): " USER_DOMAIN
+      read -p "Enter your Let's Encrypt notification Email: " USER_EMAIL
+      read -p "Paste your OpenRouter API key credential (sk-or-...): " USER_OR_KEY
+      read -p "Enter DuckDNS Subdomain identifier (e.g. mysub for mysub.duckdns.org): " DUCK_SUB
+      read -p "Enter DuckDNS account authentication Token: " DUCK_TOKEN
       
-      echo "=== 🔄 Syncing IP to DuckDNS Hub ==="
+      echo "=== 🔄 Dispatched Dynamic Update Request to DuckDNS Hub ==="
       DUCK_RESPONSE=$(curl -s "https://duckdns.org{DUCK_SUB}&token=${DUCK_TOKEN}&ip=")
       
       if [ "$DUCK_RESPONSE" != "OK" ]; then
-          echo "❌ DuckDNS Sync Failed! Please check your Token and Subdomain entries."
+          echo "❌ Routing Fault: DuckDNS sync failed. Verify token configuration values."
           exit 1
       fi
 
+      # Encrypted runtime security parameters compilation loop
       RANDOM_JWT=$(openssl rand -hex 24)
       RANDOM_REFRESH=$(openssl rand -hex 24)
       RANDOM_DB_PASS=$(openssl rand -hex 16)
@@ -149,13 +148,13 @@ write_files:
       DISCORD_CHANNEL_ID=change_me_if_needed
       EOT
 
-      echo "✅ Environment compiled. Starting Docker Stack containers..."
+      echo "✅ Local settings written. Starting Docker cluster containers..."
       docker compose --env-file .env up -d
-      echo "🎉 Cluster active!"
+      echo "🎉 Installation initialized! Workspace is now active."
       EOF
       chmod +x /usr/bin/configure-ai
 
-  # 2. Automated safe shutdown script injected right onto the host
+  # 2. Local Safe Cluster Shutdown Script 
   - path: /opt/ai-stack/safeshut.sh
     permissions: '0755'
     owner: root:root
@@ -178,35 +177,37 @@ write_files:
       echo "=== 2. Syncing Filesystem Operations ==="
       sync
       sleep 2
-      echo "=== 3. Detaching Block Storage Volume Safely ==="
+      echo "=== 3. Detaching External Storage Volumes ==="
       if mountpoint -q /mnt/ai-volume; then
           umount /mnt/ai-volume
-          echo "✅ /mnt/ai-volume unmounted successfully."
+          echo "✅ /mnt/ai-volume unmounted cleanly."
       else
-          echo "ℹ️  No external volume was mounted. Local drive blocks synchronized."
+          echo "ℹ️  No external volume elements active. Internal disk sync complete."
       fi
       echo "=========================================================="
-      echo " 🎉 SHUTDOWN COMPLETE! YOUR DATA IS SAFE."
+      echo " 🎉 SHUTDOWN COMPLETE! DATA STRUCTURES SAFE."
       echo "=========================================================="
 
-  # 3. Message of the day login banner
+  # 3. Dynamic SSH system access welcome message banner layout
   - path: /etc/update-motd.d/99-ai-stack-status
     permissions: '0755'
     owner: root:root
     content: |
       #!/bin/bash
       echo "==============================================================="
-      echo " 🌟 AI INFRASTRUCTURE ACTIVE"
+      echo " 🌟 PORTABLE MULTI-AGENT AI DEPLOYMENT FRAMEWORK ONLINE"
       echo "==============================================================="
       if [ ! -f /opt/ai-stack/.env ]; then
-          echo " ➡️  Run: sudo configure-ai"
+          echo " ➡️  To configure variables and finalize the stack setup, run:"
+          echo "    sudo configure-ai"
       else
-          echo " ✅ Services running smoothly."
-          echo " 🛑 To safely pause billing at any time, run: sudo /opt/ai-stack/safeshut.sh"
+          echo " ✅ Cluster services executing cleanly."
+          echo " 🛑 To stop containers or detach drives safely, run: sudo /opt/ai-stack/safeshut.sh"
       fi
       echo "==============================================================="
 
 runcmd:
+  # Installs 4GB system memory expansion file directly on local root space
   - if [ ! -f /swapfile ]; then fallocate -l 4G /swapfile && chmod 600 /swapfile && mkswap /swapfile && swapon /swapfile && echo '/swapfile none swap sw 0 0' >> /etc/fstab; fi
   - mkdir -p /etc/docker
   - echo '{"ipv6":true,"fixed-cidr-v6":"fd00::/80","ip6tables":true}' > /etc/docker/daemon.json
