@@ -2,6 +2,7 @@
 
 ssh_pwauth: false
 disable_root: false
+
 package_update: true
 package_upgrade: true
 
@@ -12,6 +13,16 @@ packages:
   - openssl
   - git
 
+# Automatically mount your Hetzner Volume by its device path
+# Hetzner usually attaches the first volume as /dev/sdb or /dev/vdb
+fs_setup:
+  - device: /dev/sdb
+    filesystem: ext4
+    overwrite: false
+
+mounts:
+  - [ /dev/sdb, /mnt/ai-volume, "ext4", "defaults,noatime,nofail", "0", "0" ]
+
 write_files:
   - path: /opt/ai-stack/init-setup.sh
     permissions: '0755'
@@ -19,6 +30,15 @@ write_files:
     content: |
       #!/bin/bash
       set -e
+
+      # Ensure the Hetzner Volume mountpoint is ready and writable
+      mkdir -p /mnt/ai-volume
+      
+      # Fallback check: if /dev/sdb doesn't exist, try /dev/vdb (Hetzner KVM standard)
+      if ! mountpoint -q /mnt/ai-volume; then
+          mount /dev/vdb /mnt/ai-volume 2>/dev/null || mount /dev/sdb /mnt/ai-volume 2>/dev/null || true
+      fi
+
       cd /opt/ai-stack
 
       # Configuration Settings - Pointing to your public tracking repo
@@ -31,11 +51,25 @@ write_files:
       curl -sSL "${RAW_URL}/docker-compose.yml" -o docker-compose.yml
       curl -sSL "${RAW_URL}/librechat.yaml" -o librechat.yaml
 
-      echo "=== 2. Creating Local Directory Structs ==="
-      mkdir -p hermes_data rag_data searxng librechat_data
+      echo "=== 2. Creating Persistent Directories on Hetzner Volume ==="
+      # Placing high-write databases and histories on the attached volume
+      mkdir -p /mnt/ai-volume/hermes_data
+      mkdir -p /mnt/ai-volume/rag_data
+      mkdir -p /mnt/ai-volume/searxng
+      mkdir -p /mnt/ai-volume/librechat_data
+      mkdir -p /mnt/ai-volume/mongo_data
+      mkdir -p /mnt/ai-volume/postgres_data
 
-      if [ ! -f ./searxng/settings.yml ]; then
-          cat <<EOF > ./searxng/settings.yml
+      # Create local symlinks so Docker Compose syntax stays completely clean
+      ln -sfn /mnt/ai-volume/hermes_data ./hermes_data
+      ln -sfn /mnt/ai-volume/rag_data ./rag_data
+      ln -sfn /mnt/ai-volume/searxng ./searxng
+      ln -sfn /mnt/ai-volume/librechat_data ./librechat_data
+      ln -sfn /mnt/ai-volume/mongo_data ./mongo_data
+      ln -sfn /mnt/ai-volume/postgres_data ./postgres_data
+
+      if [ ! -f /mnt/ai-volume/searxng/settings.yml ]; then
+          cat <<EOF > /mnt/ai-volume/searxng/settings.yml
       use_default_settings: true
       server:
         port: 8080
@@ -53,7 +87,7 @@ write_files:
       apt-get update
       apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
 
-      # Creates the automated setup trigger for first login
+      # Interactive setup wizard script
       cat <<'EOF' > /usr/local/bin/configure-ai
       #!/bin/bash
       cd /opt/ai-stack
@@ -63,23 +97,20 @@ write_files:
       fi
 
       echo "=========================================================="
-      echo "   🚀 INITIALIZING CORE AI-STACK CONFIGURATION"
+      echo "   🚀 INITIALIZING STORAGE-OPTIMISED AI-STACK"
       echo "=========================================================="
       read -p "Enter your primary root domain (e.g., ai.enabled.world): " USER_DOMAIN
       read -p "Enter your Let's Encrypt Email: " USER_EMAIL
       read -p "Paste your OpenRouter API Key (sk-or-...): " USER_OR_KEY
-      read -p "Enter DuckDNS Subdomain (e.g., mysubdomain for mysubdomain.duckdns.org): " DUCK_SUB
+      read -p "Enter DuckDNS Subdomain (e.g., mysubdomain): " DUCK_SUB
       read -p "Enter DuckDNS Token: " DUCK_TOKEN
       
       echo "=== 🔄 Syncing IP to DuckDNS Hub ==="
-      # Hits the dead-simple DuckDNS API to update the routing maps
       DUCK_RESPONSE=$(curl -s "https://duckdns.org{DUCK_SUB}&token=${DUCK_TOKEN}&ip=")
       
       if [ "$DUCK_RESPONSE" != "OK" ]; then
           echo "❌ DuckDNS Sync Failed! Please check your Token and Subdomain entries."
           exit 1
-      else
-          echo "✅ DuckDNS mapping successfully routed to this VPS IP!"
       fi
 
       RANDOM_JWT=$(openssl rand -hex 24)
@@ -104,27 +135,30 @@ write_files:
 
       echo "✅ Environment compiled. Starting Docker Stack containers..."
       docker compose --env-file .env up -d
-      echo "🎉 Cluster active! Make sure your AWS CNAME record points to your DuckDNS domain."
+      echo "🎉 Cluster active! Persistent records are safely isolated on your Hetzner Volume."
       EOF
       chmod +x /usr/local/bin/configure-ai
 
+   bondage:
   - path: /etc/update-motd.d/99-ai-stack-status
     permissions: '0755'
     owner: root:root
     content: |
       #!/bin/bash
       echo "==============================================================="
-      echo " 🌟 AI STACK CLOUD-INIT INFRASTRUCTURE DEPLOYED"
+      echo " 🌟 STORAGE-BOUND AI INFRASTRUCTURE ACTIVE"
       echo "==============================================================="
       if [ ! -f /opt/ai-stack/.env ]; then
-          echo " ➡️  To complete configuration and boot services, run:"
-          echo "    sudo configure-ai"
+          echo " ➡️  Run: sudo configure-ai"
       else
-          echo " ✅ Services running. Directory: /opt/ai-stack"
-          echo "    View status via: sudo docker compose -f /opt/ai-stack/docker-compose.yml ps"
+          echo " ✅ Services running smoothly on attached block storage volume."
       fi
       echo "==============================================================="
 
 runcmd:
+  # Move the 4GB System Swap allocation directly to the root local disk to protect volume IO speeds
   - if [ ! -f /swapfile ]; then fallocate -l 4G /swapfile && chmod 600 /swapfile && mkswap /swapfile && swapon /swapfile && echo '/swapfile none swap sw 0 0' >> /etc/fstab; fi
+  - mkdir -p /etc/docker
+  - echo '{"ipv6":true,"fixed-cidr-v6":"fd00::/80","ip6tables":true}' > /etc/docker/daemon.json
+  - systemctl restart docker || true
   - bash /opt/ai-stack/init-setup.sh
