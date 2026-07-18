@@ -51,7 +51,8 @@ write_files:
       GITHUB_USER="QuickFactory"
       GITHUB_REPO="ai-deployment"
       BRANCH="main"
-      RAW_URL="https://githubusercontent.com/${GITHUB_USER}/${GITHUB_REPO}/${BRANCH}"
+      RAW_URL="https://githubusercontent.com"
+      RAW_URL="${RAW_URL}/${GITHUB_USER}/${GITHUB_REPO}/${BRANCH}"
 
       echo "=== 1. Pulling Core Configuration Manifests ==="
       curl -sSL "${RAW_URL}/docker-compose.yml" -o docker-compose.yml
@@ -120,7 +121,7 @@ write_files:
       read -p "Enter DuckDNS account authentication Token: " DUCK_TOKEN
       
       echo "=== 🔄 Dispatched Dynamic Update Request to DuckDNS Hub ==="
-      DUCK_RESPONSE=$(curl -s "https://duckdns.org{DUCK_SUB}&token=${DUCK_TOKEN}&ip=")
+      DUCK_RESPONSE=$(curl -s "https://www.duckdns.org/update?domains=${DUCK_SUB}&token=${DUCK_TOKEN}&ip=")
       
       if [ "$DUCK_RESPONSE" != "OK" ]; then
           echo "❌ Routing Fault: DuckDNS sync failed. Verify token configuration values."
