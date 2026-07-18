@@ -1,10 +1,8 @@
 #cloud-config
 
-# 1. Update system package sources on primary initialization
 package_update: true
 package_upgrade: true
 
-# 2. Automatically install base distribution tooling packages across any cloud
 packages:
   - curl
   - gnupg
@@ -12,7 +10,6 @@ packages:
   - openssl
   - git
 
-# 3. Create persistent directories required for stack execution
 write_files:
   - path: /opt/ai-stack/init-setup.sh
     permissions: '0755'
@@ -23,8 +20,8 @@ write_files:
       cd /opt/ai-stack
 
       # Configuration Settings - Pointing to your public tracking repo
-      GITHUB_USER="QuickFactory"
-      GITHUB_REPO="ai-deployment"
+      GITHUB_USER="your-username"
+      GITHUB_REPO="your-repo-name"
       BRANCH="main"
       RAW_URL="https://githubusercontent.com{GITHUB_USER}/${GITHUB_REPO}/${BRANCH}"
 
@@ -46,7 +43,6 @@ write_files:
       fi
 
       echo "=== 3. Deploying Base Engine Dependencies ==="
-      # Cross-platform safe method to setup standard Docker Engine package streams
       mkdir -p /etc/apt/keyrings
       if [ ! -f /etc/apt/keyrings/docker.gpg ]; then
           curl -fsSL https://docker.com | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
@@ -55,7 +51,7 @@ write_files:
       apt-get update
       apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
 
-      # Creates an interactive configuration utility for the user on their first login
+      # Creates the automated setup trigger for first login
       cat <<'EOF' > /usr/local/bin/configure-ai
       #!/bin/bash
       cd /opt/ai-stack
@@ -67,10 +63,23 @@ write_files:
       echo "=========================================================="
       echo "   🚀 INITIALIZING CORE AI-STACK CONFIGURATION"
       echo "=========================================================="
-      read -p "Enter your application domain (e.g., ai.enabled.world): " USER_DOMAIN
+      read -p "Enter your primary root domain (e.g., ai.enabled.world): " USER_DOMAIN
       read -p "Enter your Let's Encrypt Email: " USER_EMAIL
       read -p "Paste your OpenRouter API Key (sk-or-...): " USER_OR_KEY
+      read -p "Enter DuckDNS Subdomain (e.g., mysubdomain for mysubdomain.duckdns.org): " DUCK_SUB
+      read -p "Enter DuckDNS Token: " DUCK_TOKEN
       
+      echo "=== 🔄 Syncing IP to DuckDNS Hub ==="
+      # Hits the dead-simple DuckDNS API to update the routing maps
+      DUCK_RESPONSE=$(curl -s "https://duckdns.org{DUCK_SUB}&token=${DUCK_TOKEN}&ip=")
+      
+      if [ "$DUCK_RESPONSE" != "OK" ]; then
+          echo "❌ DuckDNS Sync Failed! Please check your Token and Subdomain entries."
+          exit 1
+      else
+          echo "✅ DuckDNS mapping successfully routed to this VPS IP!"
+      fi
+
       RANDOM_JWT=$(openssl rand -hex 24)
       RANDOM_REFRESH=$(openssl rand -hex 24)
       RANDOM_DB_PASS=$(openssl rand -hex 16)
@@ -80,6 +89,8 @@ write_files:
       LIBRECHAT_DOMAIN=$USER_DOMAIN
       LETSENCRYPT_EMAIL=$USER_EMAIL
       OPENROUTER_API_KEY=$USER_OR_KEY
+      DUCKDNS_SUBDOMAIN=$DUCK_SUB
+      DUCKDNS_TOKEN=$DUCK_TOKEN
       HERMES_INTERNAL_TOKEN=$RANDOM_HERMES
       LIBRECHAT_JWT_SECRET=$RANDOM_JWT
       LIBRECHAT_JWT_REFRESH_SECRET=$RANDOM_REFRESH
@@ -91,11 +102,10 @@ write_files:
 
       echo "✅ Environment compiled. Starting Docker Stack containers..."
       docker compose --env-file .env up -d
-      echo "🎉 Cluster active! Route domains to this machine IP to access UI."
+      echo "🎉 Cluster active! Make sure your AWS CNAME record points to your DuckDNS domain."
       EOF
       chmod +x /usr/local/bin/configure-ai
 
-  # 4. Message of the Day setup to instruct users on how to complete execution
   - path: /etc/update-motd.d/99-ai-stack-status
     permissions: '0755'
     owner: root:root
@@ -113,9 +123,6 @@ write_files:
       fi
       echo "==============================================================="
 
-# 5. Core execution logic to setup memory configurations 
 runcmd:
-  # Create localized system swap file to support running 4GB memory tiers stably
   - if [ ! -f /swapfile ]; then fallocate -l 4G /swapfile && chmod 600 /swapfile && mkswap /swapfile && swapon /swapfile && echo '/swapfile none swap sw 0 0' >> /etc/fstab; fi
-  # Trigger script execution block
   - bash /opt/ai-stack/init-setup.sh
