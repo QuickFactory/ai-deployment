@@ -157,6 +157,7 @@ services:
       - certs:/etc/nginx/certs
       - vhost:/etc/nginx/vhost.d
       - html:/usr/share/nginx/html
+      - ./nginx-conf:/etc/nginx/conf.d
     networks:
       - ai-network
     depends_on:
