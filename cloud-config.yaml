@@ -250,22 +250,34 @@ runcmd:
   # 5. AUTOMATE SINGLE-DOMAIN PORT 9119 SEPARATION BYPASSING ENVIRONMENT COLLISION
   - mkdir -p /var/lib/docker/volumes/ai-stack_vhost/_data
   - |
-    cat << 'EOF' > /var/lib/docker/volumes/ai-stack_vhost/_data/ai-enabled.duckdns.org
+    cat << 'EOF' > /opt/ai-stack/apply-nginx-dashboard.sh
+    #!/bin/bash
+    # Source .env to get $LIBRECHAT_DOMAIN
+    if [ -f /opt/ai-stack/.env ]; then
+        source /opt/ai-stack/.env
+    else
+        exit 0
+    fi
+    
+    cat <<EON > "/var/lib/docker/volumes/ai-stack_vhost/_data/${LIBRECHAT_DOMAIN}"
     server {
-    listen 9119 ssl;
-    server_name ai-enabled.duckdns.org;
-    ssl_certificate /etc/nginx/certs/ai-enabled.duckdns.org.crt;
-    ssl_certificate_key /etc/nginx/certs/ai-enabled.duckdns.org.key;
-    ssl_protocols TLSv1.2 TLSv1.3;
-    ssl_ciphers HIGH:!aNULL:!MD5;
-    location / {
-        proxy_pass http://hermes:9119;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection "upgrade";
-        proxy_set_header Host $host;
-        proxy_read_timeout 3600s;
-    }
+      listen 9119 ssl;
+      server_name ai-enabled.duckdns.org;
+      ssl_certificate /etc/nginx/certs/ai-enabled.duckdns.org.crt;
+      ssl_certificate_key /etc/nginx/certs/ai-enabled.duckdns.org.key;
+      ssl_protocols TLSv1.2 TLSv1.3;
+      ssl_ciphers HIGH:!aNULL:!MD5;
+      location / {
+          proxy_pass http://hermes:9119;
+          proxy_http_version 1.1;
+          proxy_set_header Upgrade $http_upgrade;
+          proxy_set_header Connection "upgrade";
+          proxy_set_header Host $host;
+          proxy_read_timeout 3600s;
+      }
   }
+  EON
+  # Reload nginx
+  docker compose exec -d nginx-proxy nginx -s reload || true
   EOF
-
+- chmod +x /opt/ai-stack/apply-nginx-dashboard.sh
