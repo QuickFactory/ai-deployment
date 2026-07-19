@@ -282,9 +282,9 @@ runcmd:
           proxy_set_header Host \$host;
           proxy_read_timeout 3600s;
       }
-  }
-  EON
-  # Reload nginx
-  docker compose exec -d nginx-proxy nginx -s reload || true
-  EOF
-- chmod +x /opt/ai-stack/apply-nginx-dashboard.sh
+    }
+    EON
+    # Reload nginx
+    docker compose exec -d nginx-proxy nginx -s reload || true
+    EOF
+  - chmod +x /opt/ai-stack/apply-nginx-dashboard.sh
