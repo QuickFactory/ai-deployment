@@ -12,6 +12,7 @@ services:
     environment:
       - VIRTUAL_HOST=${LIBRECHAT_DOMAIN}
       - VIRTUAL_PORT=9119
+      - LETSENCRYPT_HOST=${LIBRECHAT_DOMAIN}
       - API_SERVER_ENABLED=true
       - API_SERVER_PORT=8642
       - API_SERVER_HOST=0.0.0.0
@@ -163,6 +164,9 @@ services:
       - html:/usr/share/nginx/html
     networks:
       - ai-network
+    depends_on:
+      - librechat
+      - hermes
 
   nginx-ssl-companion:
     image: nginxproxy/acme-companion
