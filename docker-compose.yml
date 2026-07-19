@@ -37,8 +37,29 @@ services:
     image: browserless/chrome:1.61-chrome-stable
     container_name: hermes-browser
     restart: unless-stopped
+    ports:
+      - "9222:3000"
     environment:
       - MAX_CONCURRENT_SESSIONS=3
+    networks:
+      - ai-network
+
+  # 3. Visual Web Chat Frontend
+  hermes-frontend:
+    image: ghcr.io/open-webui/open-webui:main
+    container_name: hermes-frontend
+    restart: unless-stopped
+    expose:
+      - "8080"
+    environment:
+      - VIRTUAL_HOST=${LIBRECHAT_DOMAIN}
+      - VIRTUAL_PORT=8080
+      - OPENAI_API_BASE_URL=http://hermes:8642/v1
+      - OPENAI_API_KEY=${HERMES_INTERNAL_TOKEN}
+    volumes:
+      - open-webui-data:/app/backend/data
+    depends_on:
+      - hermes
     networks:
       - ai-network
 
@@ -47,6 +68,8 @@ services:
     image: searxng/searxng:latest
     volumes:
       - ./searxng:/etc/searxng:ro
+    ports:
+      - "8081:8080"
     restart: unless-stopped
     networks:
       - ai-network
@@ -81,8 +104,35 @@ services:
     volumes:
       - ./librechat.yaml:/app/librechat.yaml:ro
       - ./librechat_data:/app/client/public/assets # Mapped locally (redirects to Volume)
+      - ./librechat_data/.env:/app/.env
     depends_on:
       - mongo
+    networks:
+      - ai-network
+
+  rag_api:
+    image: ghcr.io/danny-avila/librechat-rag-api-dev-lite:latest
+    container_name: rag_api
+    environment:
+      - RAG_API_KEY=${RAG_INTERNAL_API_KEY}
+      - DB_TYPE=local
+      - VECTOR_DB_TYPE=pgvector
+      - POSTGRES_HOST=db
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=librechat_rag
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=${POSTGRES_DB_PASSWORD}
+      - RAG_OPENAI_API_KEY=${OPENROUTER_API_KEY}
+      - RAG_OPENAI_BASEURL=https://openrouter.ai/api/v1
+      - EMBEDDINGS_PROVIDER=openai
+      - EMBEDDINGS_MODEL=openai/text-embedding-3-small
+    volumes:
+      - ./rag_data:/app/data
+    ports:
+      - "8085:8000"
+    depends_on:
+      - db
+    restart: always
     networks:
       - ai-network
 
@@ -108,6 +158,7 @@ services:
       - ./mongo_data:/data/db # Shifted to local bind mount
     networks:
       - ai-network
+
   nginx-proxy:
     image: nginxproxy/nginx-proxy
     container_name: nginx-proxy
