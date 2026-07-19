@@ -173,10 +173,17 @@ write_files:
       DISCORD_CHANNEL_ID=change_me_if_needed
       EOT
 
-      echo "✅ Local settings written. Starting Docker cluster containers..."
+      echo "✅ Local configuration settings saved."
+      echo "⚙️  Generating isolated Port 9119 proxy routing manifests..."
+      
+      # ◄ RUN THE ROUTING CREATION GENERATOR HERE MANUALLY:
+      bash /opt/ai-stack/apply-nginx-dashboard.sh
+
+      echo "🚀 Starting Multi-Agent Orchestration Engine Cluster..."
       docker compose --env-file .env up -d
       echo "🎉 Installation initialized! Workspace is now active."
       EOF
+      
       chmod +x /usr/bin/configure-ai
 
   # 2. Local Safe Cluster Shutdown Script 
