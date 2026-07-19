@@ -227,9 +227,24 @@ write_files:
       echo "==============================================================="
 
 runcmd:
-  # Installs 4GB system memory expansion file directly on local root space
+  # 1. Expand Virtual Memory (Swap) to stop 4GB RAM low-resource server OOM crashes
   - if [ ! -f /swapfile ]; then fallocate -l 4G /swapfile && chmod 600 /swapfile && mkswap /swapfile && swapon /swapfile && echo '/swapfile none swap sw 0 0' >> /etc/fstab; fi
+  
+  # 2. Configure Docker daemon for native IPv6 network mapping compatibility
   - mkdir -p /etc/docker
   - echo '{"ipv6":true,"fixed-cidr-v6":"fd00::/80","ip6tables":true}' > /etc/docker/daemon.json
   - systemctl restart docker || true
+
+  # 3. Enter your workspace application repository tree
+  - mkdir -p /opt/ai-stack
+  - cd /opt/ai-stack
+
+  # 4. FIX THE FILE-TO-FOLDER MOUNT CONFLICT (The OCI runtime fix)
+  # Pre-build directory structural layouts and touch empty target files
+  # BEFORE docker-compose evaluates them.
+  - mkdir -p ./hermes_data ./librechat_data ./rag_data ./postgres_data ./mongo_data ./searxng
+  - touch ./librechat_data/.env
+  - touch ./searxng/settings.yml
+
+  # 5. Kick off your interactive multi-agent configurations configuration setup loop
   - bash /opt/ai-stack/init-setup.sh
