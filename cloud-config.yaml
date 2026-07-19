@@ -270,8 +270,8 @@ runcmd:
     server {
       listen 9119 ssl;
       server_name ${LIBRECHAT_DOMAIN};
-      ssl_certificate /etc/nginx/certs/${LIBRECHAT_DOMAIN}.crt;
-      ssl_certificate_key /etc/nginx/certs/${LIBRECHAT_DOMAIN}.key;
+      ssl_certificate /etc/nginx/certs/${LIBRECHAT_DOMAIN}/fullchain.pem;
+      ssl_certificate_key /etc/nginx/certs/${LIBRECHAT_DOMAIN}/privkey.pem;
       ssl_protocols TLSv1.2 TLSv1.3;
       ssl_ciphers HIGH:!aNULL:!MD5;
       location / {
