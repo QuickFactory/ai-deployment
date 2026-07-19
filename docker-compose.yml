@@ -157,6 +157,7 @@ services:
       - certs:/etc/nginx/certs
       - vhost:/etc/nginx/vhost.d
       - html:/usr/share/nginx/html
+      - ./nginx-conf/hermes-dashboard.conf:/etc/nginx/conf.d/hermes-dashboard.conf:ro # ◄ ADD THIS LINE
     networks:
       - ai-network
     depends_on:
