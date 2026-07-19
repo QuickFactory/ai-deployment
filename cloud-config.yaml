@@ -104,7 +104,6 @@ write_files:
       
       # Forces the target binding paths to exist as empty files through the symlink layer
       touch ./librechat_data/.env
-      touch ./searxng/settings.yml
 
       if [ ! -f ./searxng/settings.yml ]; then
           cat <<EOF > ./searxng/settings.yml
@@ -115,6 +114,8 @@ write_files:
         secret_key: "$(openssl rand -hex 16)"
       EOF
       fi
+
+      touch ./searxng/settings.yml
 
       echo "=== 3. Provisioning Production Docker Engine Pipeline ==="
       mkdir -p /etc/apt/keyrings
