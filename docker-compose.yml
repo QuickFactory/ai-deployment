@@ -10,6 +10,11 @@ services:
     entrypoint: [ "/init", "/opt/hermes/docker/main-wrapper.sh" ]
     command: ["gateway run"]
     environment:
+      - VIRTUAL_HOST=${LIBRECHAT_DOMAIN}
+      - VIRTUAL_PORT=9119
+      - VIRTUAL_PATH=/hermes           # ◄ Tells Nginx to intercept path calls
+      - VIRTUAL_DEST=/                 # ◄ Rewrites the path internally so Hermes understands it
+      - LETSENCRYPT_HOST=${LIBRECHAT_DOMAIN}
       - API_SERVER_ENABLED=true
       - API_SERVER_PORT=8642
       - API_SERVER_HOST=0.0.0.0
