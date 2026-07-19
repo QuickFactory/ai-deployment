@@ -7,8 +7,11 @@ services:
     group_add:
       - 107
     restart: unless-stopped
-    command: gateway run
+    entrypoint: [ "/init", "/opt/hermes/docker/main-wrapper.sh" ]
+    command: ["gateway run"]
     environment:
+      - VIRTUAL_HOST=${LIBRECHAT_DOMAIN}
+      - VIRTUAL_PORT=9119
       - API_SERVER_ENABLED=true
       - API_SERVER_PORT=8642
       - API_SERVER_HOST=0.0.0.0
@@ -24,6 +27,11 @@ services:
       - HERMES_AUXILIARY_DEFAULT_MODEL=google/gemma-4-26b-a4b-it:free
       - HERMES_AUXILIARY_VISION_PROVIDER=openrouter
       - HERMES_AUXILIARY_VISION_MODEL=google/gemma-4-26b-a4b-it:free
+      - HERMES_DASHBOARD=1
+      - HERMES_DASHBOARD_PORT=9119
+      - HERMES_DASHBOARD_HOST=0.0.0.0
+    ports:
+      - "127.0.0.1:9119:9119"
     volumes:
       - ./hermes_data:/opt/data
       - /var/run/docker.sock:/var/run/docker.sock
@@ -41,25 +49,6 @@ services:
       - "9222:3000"
     environment:
       - MAX_CONCURRENT_SESSIONS=3
-    networks:
-      - ai-network
-
-  # 3. Visual Web Chat Frontend
-  hermes-frontend:
-    image: ghcr.io/open-webui/open-webui:main
-    container_name: hermes-frontend
-    restart: unless-stopped
-    expose:
-      - "8080"
-    environment:
-      - VIRTUAL_HOST=${LIBRECHAT_DOMAIN}
-      - VIRTUAL_PORT=8080
-      - OPENAI_API_BASE_URL=http://hermes:8642/v1
-      - OPENAI_API_KEY=${HERMES_INTERNAL_TOKEN}
-    volumes:
-      - open-webui-data:/app/backend/data
-    depends_on:
-      - hermes
     networks:
       - ai-network
 
@@ -166,6 +155,7 @@ services:
     ports:
       - "80:80"
       - "443:443"
+      - "9119:9119"
     volumes:
       - /var/run/docker.sock:/tmp/docker.sock:ro
       - certs:/etc/nginx/certs
