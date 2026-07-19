@@ -262,9 +262,9 @@ runcmd:
     cat <<EON > "/var/lib/docker/volumes/ai-stack_vhost/_data/${LIBRECHAT_DOMAIN}"
     server {
       listen 9119 ssl;
-      server_name ai-enabled.duckdns.org;
-      ssl_certificate /etc/nginx/certs/ai-enabled.duckdns.org.crt;
-      ssl_certificate_key /etc/nginx/certs/ai-enabled.duckdns.org.key;
+      server_name ${LIBRECHAT_DOMAIN};
+      ssl_certificate /etc/nginx/certs/${LIBRECHAT_DOMAIN}.crt;
+      ssl_certificate_key /etc/nginx/certs/${LIBRECHAT_DOMAIN}.key;
       ssl_protocols TLSv1.2 TLSv1.3;
       ssl_ciphers HIGH:!aNULL:!MD5;
       location / {
