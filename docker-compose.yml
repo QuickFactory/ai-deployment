@@ -10,11 +10,6 @@ services:
     entrypoint: [ "/init", "/opt/hermes/docker/main-wrapper.sh" ]
     command: ["gateway", "run"]
     environment:
-      - VIRTUAL_HOST=${LIBRECHAT_DOMAIN}
-      - VIRTUAL_PORT=9119
-      - VIRTUAL_PATH=/hermes           # ◄ Tells Nginx to intercept path calls
-      - VIRTUAL_DEST=/                 # ◄ Rewrites the path internally so Hermes understands it
-      - LETSENCRYPT_HOST=${LIBRECHAT_DOMAIN}
       - API_SERVER_ENABLED=true
       - API_SERVER_PORT=8642
       - API_SERVER_HOST=0.0.0.0
@@ -53,6 +48,7 @@ services:
     networks:
       - ai-network
 
+  # 3. SearXNG Privacy Metasearch Engine
   searxng:
     container_name: searxng
     image: searxng/searxng:latest
@@ -64,12 +60,51 @@ services:
     networks:
       - ai-network
 
+  # 4. Nginx Reverse Proxy (SSL Termination)
+  nginx-proxy:
+    image: nginxproxy/nginx-proxy
+    container_name: nginx-proxy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - /var/run/docker.sock:/tmp/docker.sock:ro
+      - certs:/etc/nginx/certs
+      - vhost:/etc/nginx/vhost.d
+      - html:/usr/share/nginx/html
+    networks:
+      - ai-network
+    depends_on:
+      - librechat
+      - hermes
+
+  # 5. Let's Encrypt SSL Companion
+  nginx-ssl-companion:
+    image: nginxproxy/acme-companion
+    container_name: nginx-ssl-companion
+    restart: unless-stopped
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - certs:/etc/nginx/certs
+      - vhost:/etc/nginx/vhost.d
+      - html:/usr/share/nginx/html
+      - acme:/etc/acme.sh
+    environment:
+      - DEFAULT_EMAIL=${LETSENCRYPT_EMAIL}
+      - NGINX_PROXY_CONTAINER=nginx-proxy
+    depends_on:
+      - nginx-proxy
+    networks:
+      - ai-network
+
+  # 6. LibreChat Frontend
   librechat:
     image: ghcr.io/danny-avila/librechat:latest
     container_name: librechat
     restart: unless-stopped
     expose:
-      - "3080" 
+      - "3080"
     environment:
       - VIRTUAL_HOST=${LIBRECHAT_DOMAIN}
       - VIRTUAL_PORT=3080
@@ -93,13 +128,14 @@ services:
       - OPENROUTER_KEY=${OPENROUTER_API_KEY}
     volumes:
       - ./librechat.yaml:/app/librechat.yaml:ro
-      - ./librechat_data:/app/client/public/assets # Mapped locally (redirects to Volume)
+      - ./librechat_data:/app/client/public/assets
       - ./librechat_data/.env:/app/.env
     depends_on:
       - mongo
     networks:
       - ai-network
 
+  # 7. RAG API (pgvector-backed retrieval)
   rag_api:
     image: ghcr.io/danny-avila/librechat-rag-api-dev-lite:latest
     container_name: rag_api
@@ -126,6 +162,7 @@ services:
     networks:
       - ai-network
 
+  # 8. PostgreSQL with pgvector
   db:
     image: ankane/pgvector:v0.5.1
     container_name: rag_postgres
@@ -134,55 +171,19 @@ services:
       - POSTGRES_USER=postgres
       - POSTGRES_PASSWORD=${POSTGRES_DB_PASSWORD}
     volumes:
-      - ./postgres_data:/var/lib/postgresql/data # Shifted to local bind mount
+      - ./postgres_data:/var/lib/postgresql/data
     networks:
       - ai-network
     restart: always
 
+  # 9. MongoDB for LibreChat
   mongo:
     image: mongo:7-jammy
     container_name: librechat-mongo
     command: --wiredTigerCacheSizeGB 0.5
     restart: unless-stopped
     volumes:
-      - ./mongo_data:/data/db # Shifted to local bind mount
-    networks:
-      - ai-network
-
-  nginx-proxy:
-    image: nginxproxy/nginx-proxy
-    container_name: nginx-proxy
-    restart: unless-stopped
-    ports:
-      - "80:80"
-      - "443:443"
-      - "9119:9119"
-    volumes:
-      - /var/run/docker.sock:/tmp/docker.sock:ro
-      - certs:/etc/nginx/certs
-      - vhost:/etc/nginx/vhost.d
-      - html:/usr/share/nginx/html
-    networks:
-      - ai-network
-    depends_on:
-      - librechat
-      - hermes
-
-  nginx-ssl-companion:
-    image: nginxproxy/acme-companion
-    container_name: nginx-ssl-companion
-    restart: unless-stopped
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-      - certs:/etc/nginx/certs
-      - vhost:/etc/nginx/vhost.d
-      - html:/usr/share/nginx/html
-      - acme:/etc/acme.sh
-    environment:
-      - DEFAULT_EMAIL=${LETSENCRYPT_EMAIL}
-      - NGINX_PROXY_CONTAINER=nginx-proxy
-    depends_on:
-      - nginx-proxy
+      - ./mongo_data:/data/db
     networks:
       - ai-network
 
@@ -194,7 +195,6 @@ volumes:
   mongo-data:
   pgdata:
 
-# Explicitly remove system volumes section since we are binding natively via filesystems
 networks:
   ai-network:
     enable_ipv6: true
