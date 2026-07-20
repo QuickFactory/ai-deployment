@@ -143,6 +143,8 @@ write_files:
       read -p "Paste your OpenRouter API key credential (sk-or-...): " USER_OR_KEY
       read -p "Enter DuckDNS Subdomain identifier (e.g. mysub for mysub.duckdns.org): " DUCK_SUB
       read -p "Enter DuckDNS account authentication Token: " DUCK_TOKEN
+      read -sp "Choose a password for the Hermes dashboard: " HERMES_PASSWORD
+      echo ""
 
       echo "=== 🔄 Dispatched Dynamic Update Request to DuckDNS Hub ==="
       DUCK_RESPONSE=$(curl -s "https://www.duckdns.org/update?domains=${DUCK_SUB}&token=${DUCK_TOKEN}&ip=")
@@ -178,8 +180,30 @@ write_files:
       echo "🚀 Starting Multi-Agent Orchestration Engine Cluster..."
       docker compose --env-file .env up -d
 
-      echo "⏳ Waiting for nginx-proxy to initialize..."
-      sleep 10
+      echo "⏳ Waiting for Hermes to initialize (this may take 30 seconds)..."
+      sleep 30
+
+      echo "🔐 Generating Hermes dashboard basic auth credentials..."
+      HERMES_HASH=$(docker compose exec -T hermes python -c \
+          "from plugins.dashboard_auth.basic import hash_password; print(hash_password('${HERMES_PASSWORD}'))" 2>/dev/null)
+
+      if [ -z "$HERMES_HASH" ]; then
+          echo "⚠️  Could not generate Hermes password hash. The dashboard will be inaccessible."
+          echo "    Run the following manually after deployment:"
+          echo "    cd /opt/ai-stack && sudo docker compose exec hermes python -c \\"
+          echo "      \"from plugins.dashboard_auth.basic import hash_password; print(hash_password('your-password'))\""
+      else
+          mkdir -p ./hermes_config
+          cat <<HERMESCFG > ./hermes_config/config.yaml
+      dashboard:
+        basic_auth:
+          username: "admin"
+          password_hash: "${HERMES_HASH}"
+      HERMESCFG
+          echo "✅ Hermes auth config written. Restarting Hermes..."
+          docker compose up -d hermes
+          sleep 5
+      fi
 
       echo "⚙️  Writing Hermes path-based routing into nginx-proxy..."
       VHOST_DIR="/var/lib/docker/volumes/ai-stack_vhost/_data"
@@ -206,7 +230,13 @@ write_files:
       echo "🕐 Installing DuckDNS auto-refresh cron job (every 5 minutes)..."
       (crontab -l 2>/dev/null; echo "*/5 * * * * curl -s 'https://www.duckdns.org/update?domains=${DUCK_SUB}&token=${DUCK_TOKEN}&ip=' > /dev/null 2>&1") | crontab -
 
-      echo "🎉 Installation initialized! Workspace is now active."
+      echo "=========================================================="
+      echo " 🎉 Installation initialized! Workspace is now active."
+      echo "=========================================================="
+      echo "  LibreChat:        https://${USER_DOMAIN}/"
+      echo "  Hermes Dashboard: https://${USER_DOMAIN}/hermes"
+      echo "    (login: admin / your chosen password)"
+      echo "=========================================================="
       WRAPEOF
 
       chmod +x /usr/bin/configure-ai
