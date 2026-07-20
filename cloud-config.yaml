@@ -117,8 +117,12 @@ write_files:
 
       touch ./searxng/settings.yml
 
-      # Create nginx-conf directory for Hermes port 9119 config
+      # Create nginx-conf directory and placeholder file
+      # (must exist before Docker starts to prevent bind-mount becoming a directory)
       mkdir -p ./nginx-conf
+      cat <<'PLACEHOLDER' > ./nginx-conf/hermes-9119.conf
+      # Placeholder — replaced by configure-ai after SSL certs are issued
+      PLACEHOLDER
 
       echo "=== 3. Provisioning Production Docker Engine Pipeline ==="
       mkdir -p /etc/apt/keyrings
@@ -198,6 +202,7 @@ write_files:
           echo "    Then inject the hash into /opt/data/config.yaml and restart hermes."
       else
           docker compose exec -T hermes bash -c "grep -q 'dashboard:' /opt/data/config.yaml || cat >> /opt/data/config.yaml << 'HERMESCFG'
+
       dashboard:
         basic_auth:
           username: \"admin\"
@@ -208,8 +213,23 @@ write_files:
           sleep 5
       fi
 
-      echo "⚙️  Generating Hermes port 9119 nginx configuration..."
-      cat <<EOL > ./nginx-conf/hermes-9119.conf
+      echo "⚙️  Waiting for Let's Encrypt SSL certificates to be issued..."
+      for i in $(seq 1 30); do
+          if docker compose exec -T nginx-proxy test -f "/etc/nginx/certs/${USER_DOMAIN}/fullchain.pem" 2>/dev/null; then
+              echo "✅ SSL certificates found (attempt $i)."
+              break
+          fi
+          if [ $i -eq 30 ]; then
+              echo "⚠️  Timed out waiting for certificates. Port 9119 will not be available."
+              echo "    Run the following manually after certs are issued:"
+              echo "    cd /opt/ai-stack && sudo docker compose up -d nginx-proxy"
+          fi
+          sleep 10
+      done
+
+      if docker compose exec -T nginx-proxy test -f "/etc/nginx/certs/${USER_DOMAIN}/fullchain.pem" 2>/dev/null; then
+          echo "🔐 Activating Hermes port 9119 with SSL..."
+          cat <<EOL > ./nginx-conf/hermes-9119.conf
       server {
           listen 9119 ssl;
           server_name ${USER_DOMAIN};
@@ -233,8 +253,9 @@ write_files:
       }
       EOL
 
-      echo "🔄 Restarting nginx-proxy to load port 9119 config..."
-      docker compose up -d nginx-proxy
+          echo "🔄 Restarting nginx-proxy to load port 9119..."
+          docker compose up -d nginx-proxy
+      fi
 
       echo "🕐 Installing DuckDNS auto-refresh cron job (every 5 minutes)..."
       (crontab -l 2>/dev/null; echo "*/5 * * * * curl -s 'https://www.duckdns.org/update?domains=${DUCK_SUB}&token=${DUCK_TOKEN}&ip=' > /dev/null 2>&1") | crontab -
