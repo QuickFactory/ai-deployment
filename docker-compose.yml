@@ -19,6 +19,7 @@ services:
       - DISCORD_CHANNEL_ID=${DISCORD_CHANNEL_ID}
       - GATEWAY_ALLOW_ALL_USERS=true
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
+      - HERMES_INTERNAL_TOKEN=${HERMES_INTERNAL_TOKEN}
       - HERMES_MODEL_PROVIDER=openrouter
       - HERMES_MODEL=google/gemini-2.5-flash
       - HERMES_AUXILIARY_DEFAULT_PROVIDER=openrouter
@@ -30,6 +31,7 @@ services:
       - HERMES_DASHBOARD_HOST=0.0.0.0
     volumes:
       - ./hermes_data:/opt/data
+      - ./hermes_config/config.yaml:/opt/hermes/config.yaml:ro
       - /var/run/docker.sock:/var/run/docker.sock
     depends_on:
       - hermes-browser
