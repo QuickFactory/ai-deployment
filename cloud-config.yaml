@@ -51,15 +51,15 @@ write_files:
       GITHUB_USER="QuickFactory"
       GITHUB_REPO="ai-deployment"
       BRANCH="main"
-      RAW_URL="https://raw.githubusercontent.com" # CORRECTED URL
+      RAW_URL="https://raw.githubusercontent.com"
       RAW_URL="${RAW_URL}/${GITHUB_USER}/${GITHUB_REPO}/${BRANCH}"
 
       # Helper function for robust curl downloads with retries
       robust_curl() {
           local url=$1
           local output=$2
-          local max_attempts=10  # Number of retry attempts
-          local delay=5          # Delay between attempts in seconds
+          local max_attempts=10
+          local delay=5
 
           for i in $(seq 1 $max_attempts); do
               if curl -sSL "$url" -o "$output"; then
@@ -101,7 +101,7 @@ write_files:
       ln -sfn "${BASE_DATA_DIR}/librechat_data" ./librechat_data
       ln -sfn "${BASE_DATA_DIR}/mongo_data" ./mongo_data
       ln -sfn "${BASE_DATA_DIR}/postgres_data" ./postgres_data
-      
+
       # Forces the target binding paths to exist as empty files through the symlink layer
       touch ./librechat_data/.env
 
@@ -120,14 +120,14 @@ write_files:
       echo "=== 3. Provisioning Production Docker Engine Pipeline ==="
       mkdir -p /etc/apt/keyrings
       if [ ! -f /etc/apt/keyrings/docker.gpg ]; then
-          curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg # CORRECTED DOCKER GPG URL
+          curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
       fi
       echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null
       apt-get update
       apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
 
       # Securely deploy the localized interactive setup wizard utility
-      cat <<'EOF' > /usr/bin/configure-ai
+      cat <<'WRAPEOF' > /usr/bin/configure-ai
       #!/bin/bash
       cd /opt/ai-stack
       if [ -f .env ]; then
@@ -143,10 +143,10 @@ write_files:
       read -p "Paste your OpenRouter API key credential (sk-or-...): " USER_OR_KEY
       read -p "Enter DuckDNS Subdomain identifier (e.g. mysub for mysub.duckdns.org): " DUCK_SUB
       read -p "Enter DuckDNS account authentication Token: " DUCK_TOKEN
-      
+
       echo "=== 🔄 Dispatched Dynamic Update Request to DuckDNS Hub ==="
       DUCK_RESPONSE=$(curl -s "https://www.duckdns.org/update?domains=${DUCK_SUB}&token=${DUCK_TOKEN}&ip=")
-      
+
       if [ "$DUCK_RESPONSE" != "OK" ]; then
           echo "❌ Routing Fault: DuckDNS sync failed. Verify token configuration values."
           exit 1
@@ -174,53 +174,44 @@ write_files:
       EOT
 
       echo "✅ Local configuration settings saved."
-      echo "⚙️  Generating isolated Port 9119 proxy routing manifests..."
-      
-      # ◄ RUN THE ROUTING CREATION GENERATOR HERE MANUALLY:
-      bash /opt/ai-stack/apply-nginx-dashboard.sh
 
       echo "🚀 Starting Multi-Agent Orchestration Engine Cluster..."
       docker compose --env-file .env up -d
+
+      echo "⏳ Waiting for nginx-proxy to initialize..."
+      sleep 10
+
+      echo "⚙️  Writing Hermes path-based routing into nginx-proxy..."
+      VHOST_DIR="/var/lib/docker/volumes/ai-stack_vhost/_data"
+      mkdir -p "$VHOST_DIR"
+
+      cat <<EOL > "${VHOST_DIR}/${USER_DOMAIN}_location"
+      # Hermes dashboard at /hermes
+      location /hermes {
+          proxy_pass http://hermes:9119;
+          proxy_http_version 1.1;
+          proxy_set_header Upgrade \$http_upgrade;
+          proxy_set_header Connection "upgrade";
+          proxy_set_header Host \$host;
+          proxy_set_header X-Real-IP \$remote_addr;
+          proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+          proxy_set_header X-Forwarded-Proto \$scheme;
+          proxy_read_timeout 3600s;
+      }
+      EOL
+
+      echo "🔄 Reloading nginx-proxy configuration..."
+      docker compose exec nginx-proxy nginx -s reload || true
+
+      echo "🕐 Installing DuckDNS auto-refresh cron job (every 5 minutes)..."
+      (crontab -l 2>/dev/null; echo "*/5 * * * * curl -s 'https://www.duckdns.org/update?domains=${DUCK_SUB}&token=${DUCK_TOKEN}&ip=' > /dev/null 2>&1") | crontab -
+
       echo "🎉 Installation initialized! Workspace is now active."
-      EOF
-      
+      WRAPEOF
+
       chmod +x /usr/bin/configure-ai
 
-  # 2. Local Safe Cluster Shutdown Script 
-  - path: /opt/ai-stack/safeshut.sh
-    permissions: '0755'
-    owner: root:root
-    content: |
-      #!/bin/bash
-      set -e
-      if [ "$EUID" -ne 0 ]; then
-        echo "❌ Error: Please execute this script using sudo (sudo ./safeshut.sh)"
-        exit 1
-      fi
-      cd /opt/ai-stack
-      echo "=========================================================="
-      echo " 🛑 INITIATING GRACEFUL AI STACK SHUTDOWN SEQUENCE"
-      echo "=========================================================="
-      if [ -f docker-compose.yml ]; then
-          echo "=== 1. Stopping Containers & Flushing DB Memory Cache ==="
-          docker compose down --timeout 30
-          echo "✅ Containers stopped and memory caches flushed to disk."
-      fi
-      echo "=== 2. Syncing Filesystem Operations ==="
-      sync
-      sleep 2
-      echo "=== 3. Detaching External Storage Volumes ==="
-      if mountpoint -q /mnt/ai-volume; then
-          umount /mnt/ai-volume
-          echo "✅ /mnt/ai-volume unmounted cleanly."
-      else
-          echo "ℹ️  No external volume elements active. Internal disk sync complete."
-      fi
-      echo "=========================================================="
-      echo " 🎉 SHUTDOWN COMPLETE! DATA STRUCTURES SAFE."
-      echo "=========================================================="
-
-  # 3. Dynamic SSH system access welcome message banner layout
+  # 2. Dynamic SSH system access welcome message banner layout
   - path: /etc/update-motd.d/99-ai-stack-status
     permissions: '0755'
     owner: root:root
@@ -241,61 +232,13 @@ write_files:
 runcmd:
   # 1. Expand Virtual Memory (Swap) to stop 4GB RAM low-resource server OOM crashes
   - if [ ! -f /swapfile ]; then fallocate -l 4G /swapfile && chmod 600 /swapfile && mkswap /swapfile && swapon /swapfile && echo '/swapfile none swap sw 0 0' >> /etc/fstab; fi
-  
+
   # 2. Configure Docker daemon for native IPv6 network mapping compatibility
   - mkdir -p /etc/docker
   - echo '{"ipv6":true,"fixed-cidr-v6":"fd00::/80","ip6tables":true}' > /etc/docker/daemon.json
   - systemctl restart docker || true
 
-  # 3. Enter your workspace application repository tree
+  # 3. Enter your workspace application repository tree and run setup
   - mkdir -p /opt/ai-stack
   - cd /opt/ai-stack
-
-  # 4. Kick off your background folder and link infrastructure mapping framework
   - bash /opt/ai-stack/init-setup.sh
-
-
-  # 5. DYNAMICALLY GENERATE STANDALONE PORT 9119 SERVER BLOCK
-  - |
-    cat << 'EOF' > /opt/ai-stack/apply-nginx-dashboard.sh
-    #!/bin/bash
-    # Source .env to pull down the dynamic user $LIBRECHAT_DOMAIN value
-    if [ -f /opt/ai-stack/.env ]; then
-        source /opt/ai-stack/.env
-    else
-        exit 0
-    fi
-  
-    # 1. PURGE CORRUPTED TEMPLATE: Clear out the bad vhost.d configuration file causing the crash loop
-    rm -f /var/lib/docker/volumes/ai-stack_vhost/_data/default
-  
-    # 2. WORKSPACE EXPANSION: Establish the custom local standalone config directory
-    mkdir -p /opt/ai-stack/nginx-conf
- 
-    # 3. CONFIG GENERATION: Write an isolated server block configuration into the conf.d directory
-    cat <<EON > "/opt/ai-stack/nginx-conf/hermes-dashboard.conf"
-    server {
-        listen 9119 ssl;
-        server_name \${LIBRECHAT_DOMAIN};
-
-        # Safely matches the production-ready directory path layout deployed by acme-companion
-        ssl_certificate /etc/nginx/certs/\${LIBRECHAT_DOMAIN}/fullchain.pem;
-        ssl_certificate_key /etc/nginx/certs/\${LIBRECHAT_DOMAIN}/privkey.pem;
-        ssl_protocols TLSv1.2 TLSv1.3;
-        ssl_ciphers HIGH:!aNULL:!MD5;
-
-        location / {
-            proxy_pass http://hermes:9119;
-            proxy_http_version 1.1;
-            proxy_set_header Upgrade \$http_upgrade;
-            proxy_set_header Connection "upgrade";
-            proxy_set_header Host \$host;
-            proxy_read_timeout 3600s;
-        }
-    }
-    EON
-  
-    # 4. ENGINE REBOOT: Signal Nginx-Proxy to reload its active configurations
-    docker compose exec -d nginx-proxy nginx -s reload || true
-    EOF
-  - chmod +x /opt/ai-stack/apply-nginx-dashboard.sh
