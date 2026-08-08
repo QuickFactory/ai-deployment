@@ -1,5 +1,5 @@
 services:
-  # 1. Core Hermes AI Engine
+  # 1. Core Hermes AI Engine — owns BOTH public vhosts (dashboard + API)
   hermes:
     image: nousresearch/hermes-agent
     container_name: hermes
@@ -7,12 +7,14 @@ services:
     group_add:
       - 107
     restart: unless-stopped
-    entrypoint: [ "/init", "/opt/hermes/docker/main-wrapper.sh" ]
+    entrypoint: ["/init", "/opt/hermes/docker/main-wrapper.sh"]
     command: ["gateway", "run"]
     environment:
       - API_SERVER_ENABLED=true
       - API_SERVER_PORT=8642
       - API_SERVER_HOST=0.0.0.0
+      # Single internal token. Public clients never see it: nginx validates
+      # one of the 5 client keys and swaps in this token (see vhost.d snippet).
       - API_SERVER_KEY=${HERMES_INTERNAL_TOKEN}
       - BROWSER_CDP_URL=ws://hermes-browser:3000
       - DISCORD_BOT_TOKEN=${DISCORD_BOT_TOKEN}
@@ -28,6 +30,20 @@ services:
       - HERMES_DASHBOARD=1
       - HERMES_DASHBOARD_PORT=9119
       - HERMES_DASHBOARD_HOST=0.0.0.0
+      # RAG access for the Hermes retrieval tool (Stage 3b)
+      - RAG_API_URL=http://rag_api:8000
+      - RAG_API_KEY=${RAG_INTERNAL_API_KEY}
+      # ---- nginx-proxy vhost declarations (two DuckDNS domains, one cert each) ----
+      - LETSENCRYPT_HOST=${AI_DOMAIN},${API_DOMAIN}
+      - LETSENCRYPT_EMAIL=${LETSENCRYPT_EMAIL}
+      - |
+        VIRTUAL_HOST_MULTIPORTS=
+        ${AI_DOMAIN}:
+          "/":
+            port: 9119
+        ${API_DOMAIN}:
+          "/":
+            port: 8642
     volumes:
       - ./hermes_data:/opt/data
       - /var/run/docker.sock:/var/run/docker.sock
@@ -36,31 +52,31 @@ services:
     networks:
       - ai-network
 
-  # 2. Standalone Headless Chrome Browser Service
+  # 2. Headless Chrome for Hermes — internal only (was 9222:3000)
   hermes-browser:
     image: browserless/chrome:1.61-chrome-stable
     container_name: hermes-browser
     restart: unless-stopped
-    ports:
-      - "9222:3000"
+    expose:
+      - "3000"
     environment:
-      - MAX_CONCURRENT_SESSIONS=3
+      - MAX_CONCURRENT_SESSIONS=2 # each live session ~300-500MB; 2 is the 4GB-safe ceiling
     networks:
       - ai-network
 
-  # 3. SearXNG Privacy Metasearch Engine
+  # 3. SearXNG — internal only (was 8081:8080)
   searxng:
     container_name: searxng
     image: searxng/searxng:latest
     volumes:
       - ./searxng:/etc/searxng:ro
-    ports:
-      - "8081:8080"
+    expose:
+      - "8080"
     restart: unless-stopped
     networks:
       - ai-network
 
-  # 4. Nginx Reverse Proxy (SSL Termination)
+  # 4. Nginx Reverse Proxy — the ONLY public entry points (80/443)
   nginx-proxy:
     image: nginxproxy/nginx-proxy
     container_name: nginx-proxy
@@ -68,17 +84,15 @@ services:
     ports:
       - "80:80"
       - "443:443"
-      - "9119:9119"
     volumes:
       - /var/run/docker.sock:/tmp/docker.sock:ro
       - certs:/etc/nginx/certs
-      - vhost:/etc/nginx/vhost.d
+      - ./nginx-conf/vhost.d:/etc/nginx/vhost.d # bind mount: deploy.sh drops the API auth snippet here
       - html:/usr/share/nginx/html
-      - ./nginx-conf/hermes-9119.conf:/etc/nginx/conf.d/hermes-9119.conf:ro
+      - ./nginx-conf/api-keys.conf:/etc/nginx/conf.d/api-keys.conf:ro # map of 5 client keys
     networks:
       - ai-network
     depends_on:
-      - librechat
       - hermes
 
   # 5. Let's Encrypt SSL Companion
@@ -89,7 +103,7 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - certs:/etc/nginx/certs
-      - vhost:/etc/nginx/vhost.d
+      - ./nginx-conf/vhost.d:/etc/nginx/vhost.d # must share the same vhost.d as nginx-proxy
       - html:/usr/share/nginx/html
       - acme:/etc/acme.sh
     environment:
@@ -100,8 +114,9 @@ services:
     networks:
       - ai-network
 
-  # 6. LibreChat Frontend
+  # 6. LibreChat Frontend — OPTIONAL (enabled via COMPOSE_PROFILES=librechat)
   librechat:
+    profiles: ["librechat"]
     image: ghcr.io/danny-avila/librechat:latest
     container_name: librechat
     restart: unless-stopped
@@ -138,7 +153,7 @@ services:
     networks:
       - ai-network
 
-  # 7. RAG API (pgvector-backed retrieval)
+  # 7. RAG API — ALWAYS ON (Hermes infrastructure, not LibreChat's). Internal only.
   rag_api:
     image: ghcr.io/danny-avila/librechat-rag-api-dev-lite:latest
     container_name: rag_api
@@ -157,15 +172,15 @@ services:
       - EMBEDDINGS_MODEL=openai/text-embedding-3-small
     volumes:
       - ./rag_data:/app/data
-    ports:
-      - "8085:8000"
+    expose:
+      - "8000"
     depends_on:
       - db
     restart: always
     networks:
       - ai-network
 
-  # 8. PostgreSQL with pgvector
+  # 8. PostgreSQL with pgvector — ALWAYS ON
   db:
     image: ankane/pgvector:v0.5.1
     container_name: rag_postgres
@@ -179,8 +194,9 @@ services:
       - ai-network
     restart: always
 
-  # 9. MongoDB for LibreChat
+  # 9. MongoDB — only exists for LibreChat
   mongo:
+    profiles: ["librechat"]
     image: mongo:7-jammy
     container_name: librechat-mongo
     command: --wiredTigerCacheSizeGB 0.5
@@ -190,13 +206,31 @@ services:
     networks:
       - ai-network
 
+  # 10. Folder-drop ingest watcher with scanned-PDF OCR (ocrmypdf/Tesseract)
+  #     Memory-capped, low CPU priority, serial processing: OCR bursts can
+  #     never starve Hermes or the databases.
+  rag-ingest:
+    build: ./ingest-image
+    container_name: rag-ingest
+    restart: unless-stopped
+    mem_limit: 1200m
+    cpus: 0.75
+    environment:
+      - RAG_API_URL=http://rag_api:8000
+      - RAG_API_KEY=${RAG_INTERNAL_API_KEY}
+      - OCR_LANGUAGES=${OCR_LANGUAGES:-eng}
+      - POLL_INTERVAL=${INGEST_POLL_INTERVAL:-20}
+    volumes:
+      - ./ingest:/data
+    depends_on:
+      - rag_api
+    networks:
+      - ai-network
+
 volumes:
   certs:
-  vhost:
   html:
   acme:
-  mongo-data:
-  pgdata:
 
 networks:
   ai-network:
