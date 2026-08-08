@@ -1,0 +1,14 @@
+# Rendered by deploy.sh to nginx-conf/vhost.d/<API_DOMAIN>_location
+# nginx-proxy includes this file inside the generated location block
+# for the API vhost only. The dashboard vhost is untouched.
+#
+# $api_client is set by the map in conf.d/api-keys.conf: it is non-empty
+# only when the request carries one of the 5 issued client keys.
+
+if ($api_client = "") { return 401; }
+
+# Translate: client key in, single internal Hermes token out.
+proxy_set_header Authorization "Bearer __HERMES_INTERNAL_TOKEN__";
+
+# Attribute traffic per client key in the access log.
+access_log /var/log/nginx/access.log vhost;
