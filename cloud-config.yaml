@@ -10,6 +10,8 @@ packages:
   - openssl
   - git
   - gettext-base
+  - python3
+  - python3-pip
 
 write_files:
   # =====================================================================
@@ -40,7 +42,7 @@ write_files:
       cd /opt/ai-stack
       GITHUB_USER="QuickFactory"
       GITHUB_REPO="ai-deployment"
-      BRANCH="main"
+      BRANCH="dbl"
       RAW_URL="https://raw.githubusercontent.com/${GITHUB_USER}/${GITHUB_REPO}/${BRANCH}"
 
       robust_curl() {
@@ -122,6 +124,8 @@ write_files:
       read -p  "OpenRouter API key (sk-or-...): " USER_OR_KEY
       read -p  "DuckDNS account token: " DUCK_TOKEN
       read -sp "Password for the Hermes dashboard: " HERMES_PASSWORD
+      read -p  "Discord Bot Token: " DISCORD_BOT_TOKEN
+      read -p  "Discord Channel ID: " DISCORD_CHANNEL_ID
       echo ""
       read -p  "Install LibreChat frontend? [y/N]: " INSTALL_LC
 
@@ -130,7 +134,7 @@ write_files:
       if [[ "$INSTALL_LC" =~ ^[Yy]$ ]]; then
         read -p "DuckDNS subdomain for LibreChat: " DUCK_LC
         DUCK_SUBS="${DUCK_SUBS},${DUCK_LC}"
-        curl -sSL "https://raw.githubusercontent.com/QuickFactory/ai-deployment/main/librechat.yaml" -o librechat.yaml
+        curl -sSL "${RAW_URL}/librechat.yaml" -o librechat.yaml
         LC_BLOCK=$(printf '%s\n' \
           "COMPOSE_PROFILES=librechat" \
           "LIBRECHAT_DOMAIN=${DUCK_LC}.duckdns.org" \
@@ -177,8 +181,8 @@ write_files:
       POSTGRES_DB_PASSWORD=$(openssl rand -hex 16)
       OCR_LANGUAGES=eng
       INGEST_POLL_INTERVAL=20
-      DISCORD_BOT_TOKEN=change_me_if_needed
-      DISCORD_CHANNEL_ID=change_me_if_needed
+      DISCORD_BOT_TOKEN=${DISCORD_BOT_TOKEN}
+      DISCORD_CHANNEL_ID=${DISCORD_CHANNEL_ID}
       ${LC_BLOCK}
       EOT
       chmod 600 .env

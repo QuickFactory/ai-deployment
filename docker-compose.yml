@@ -3,6 +3,15 @@ services:
   hermes:
     image: nousresearch/hermes-agent
     container_name: hermes
+    # SECURITY NOTE:
+    # this container runs as root, is added to the docker group, AND has
+    # /var/run/docker.sock mounted below. That combination gives it
+    # host-root-equivalent access. Combined with GATEWAY_ALLOW_ALL_USERS=true
+    # and Discord control, anyone with access to the configured Discord
+    # bot/channel can effectively issue commands to a process with full
+    # control of the host. If you don't need Hermes to manage other
+    # containers, drop the docker.sock mount, the group_add line, and
+    # "user: root" entirely.
     user: "root"
     group_add:
       - 107
@@ -37,8 +46,7 @@ services:
       - LETSENCRYPT_HOST=${AI_DOMAIN},${API_DOMAIN}
       - LETSENCRYPT_EMAIL=${LETSENCRYPT_EMAIL}
       - |
-        VIRTUAL_HOST_MULTIPORTS=
-        ${AI_DOMAIN}:
+        VIRTUAL_HOST_MULTIPORTS=${AI_DOMAIN}:
           "/":
             port: 9119
         ${API_DOMAIN}:
@@ -132,9 +140,17 @@ services:
       - JWT_REFRESH_SECRET=${LIBRECHAT_JWT_REFRESH_SECRET}
       - TITLE=AI Enabled World
       - CONFIG_PATH=/app/librechat.yaml
+      # SECURITY NOTE: open registration + social login on a
+      # publicly reachable domain lets anyone who finds the URL create an
+      # account and spend your OPENROUTER_API_KEY credits. Set both to
+      # "false" (or add an allowlist) if this isn't meant to be public.
       - ALLOW_REGISTRATION=true
       - ALLOW_SOCIAL_LOGIN=true
       - SEARXNG_INSTANCE_URL=http://searxng:8080
+      # NOTE: no firecrawl service is defined in this file, and
+      # "localhost" inside this container refers to the container itself,
+      # not another service — this URL points at nothing and firecrawl
+      # features will silently fail if librechat.yaml enables them.
       - FIRECRAWL_API_KEY=not-needed-using-cheerio
       - FIRECRAWL_API_URL=http://localhost:3002
       - RAG_API_TOP_K=3
