@@ -109,6 +109,12 @@ write_files:
       #!/bin/bash
       set -e
       cd /opt/ai-stack
+
+      GITHUB_USER="QuickFactory"
+      GITHUB_REPO="ai-deployment"
+      BRANCH="dbl"
+      RAW_URL="https://raw.githubusercontent.com/${GITHUB_USER}/${GITHUB_REPO}/${BRANCH}"
+
       if [ -f .env ]; then
         echo "A .env already exists. Edit it directly, or remove it to re-run."; exit 1
       fi
