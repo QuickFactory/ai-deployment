@@ -74,7 +74,11 @@ write_files:
       # nginx to refuse to start entirely with "could not build map_hash,
       # you should increase map_hash_bucket_size". Generate this upfront so
       # it's in place before configure-ai ever populates real keys.
-      cat <<'MAPHASH' > nginx-conf/map-hash-size.conf
+      # The "00-" prefix matters: nginx-proxy loads /etc/nginx/conf.d/*.conf
+      # alphabetically, and nginx builds each map's hash table as it parses
+      # that map block, so this MUST load before api-keys.conf (which
+      # contains the map block) or the setting has no effect.
+      cat <<'MAPHASH' > nginx-conf/00-map-hash-size.conf
       map_hash_bucket_size 128;
       MAPHASH
 
