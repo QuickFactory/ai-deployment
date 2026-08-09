@@ -149,9 +149,9 @@ write_files:
       read -p  "OpenRouter API key (sk-or-...): " USER_OR_KEY
       read -p  "DuckDNS account token: " DUCK_TOKEN
       read -sp "Password for the Hermes dashboard: " HERMES_PASSWORD
+      echo ""
       read -p  "Discord Bot Token: " DISCORD_BOT_TOKEN
       read -p  "Discord Channel ID: " DISCORD_CHANNEL_ID
-      echo ""
       read -p  "Install LibreChat frontend? [y/N]: " INSTALL_LC
 
       DUCK_SUBS="${DUCK_DASH},${DUCK_API}"
@@ -215,16 +215,42 @@ write_files:
       echo "=== Starting the stack ==="
       docker compose --env-file .env up -d --build
 
-      echo "Waiting for Hermes to initialize (30s)..."
-      sleep 30
+      # A blind `sleep 30` isn't a real readiness check — Hermes'
+      # gateway/plugin init can legitimately take longer than that,
+      # especially on first boot with --build. Poll instead of guessing.
+      echo "=== Waiting for Hermes to be ready for exec (up to 3 min) ==="
+      HERMES_READY=0
+      for i in $(seq 1 36); do
+        if docker compose exec -T hermes python -c "import plugins.dashboard_auth.basic" 2>/dev/null; then
+          HERMES_READY=1
+          break
+        fi
+        printf "."
+        sleep 5
+      done
+      echo ""
 
       echo "=== Configuring Hermes dashboard basic auth ==="
-      HERMES_HASH=$(docker compose exec -T hermes python -c \
-        "from plugins.dashboard_auth.basic import hash_password; print(hash_password('${HERMES_PASSWORD}'))" 2>/dev/null)
+      # Don't discard stderr — log it, so a failure is diagnosable
+      # instead of silently producing an empty hash. Also retry a few
+      # times in case the container is up but still finishing init.
+      HASH_LOG=/opt/ai-stack/dashboard-auth-setup.log
+      : > "$HASH_LOG"
+      HERMES_HASH=""
+      if [ "$HERMES_READY" -eq 1 ]; then
+        for i in 1 2 3; do
+          HERMES_HASH=$(docker compose exec -T hermes python -c \
+            "from plugins.dashboard_auth.basic import hash_password; print(hash_password('${HERMES_PASSWORD}'))" \
+            2>>"$HASH_LOG")
+          [ -n "$HERMES_HASH" ] && break
+          sleep 5
+        done
+      fi
+
       if [ -z "$HERMES_HASH" ]; then
-        echo "WARN: could not generate dashboard password hash."
-        echo "Run manually and inject into /opt/data/config.yaml, then restart hermes:"
-        echo "  docker compose exec hermes python -c \"from plugins.dashboard_auth.basic import hash_password; print(hash_password('your-password'))\""
+        echo "WARN: could not generate dashboard password hash after retries."
+        echo "      See ${HASH_LOG} for the actual error."
+        echo "      Fix it anytime with: sudo /opt/ai-stack/set-dashboard-password.sh"
       else
         docker compose exec -T hermes bash -c "grep -q 'dashboard:' /opt/data/config.yaml || cat >> /opt/data/config.yaml << 'HERMESCFG'
       dashboard:
@@ -234,6 +260,35 @@ write_files:
       HERMESCFG"
         docker compose up -d hermes
       fi
+
+      # Standalone helper so setting/resetting the dashboard password never
+      # again requires hand-typed docker exec + sed commands.
+      cat <<'PWEOF' > /opt/ai-stack/set-dashboard-password.sh
+      #!/bin/bash
+      set -e
+      cd /opt/ai-stack
+      read -sp "New Hermes dashboard password: " NEW_PASSWORD
+      echo ""
+      HASH=$(docker compose exec -T hermes python -c \
+        "from plugins.dashboard_auth.basic import hash_password; print(hash_password('${NEW_PASSWORD}'))")
+      if [ -z "$HASH" ]; then
+        echo "ERROR: hash generation failed. Is the hermes container running? (docker compose ps hermes)"
+        exit 1
+      fi
+      if docker compose exec -T hermes grep -q 'dashboard:' /opt/data/config.yaml; then
+        docker compose exec -T hermes sed -i "s|password_hash: \".*\"|password_hash: \"${HASH}\"|" /opt/data/config.yaml
+      else
+        docker compose exec -T hermes bash -c "cat >> /opt/data/config.yaml << HERMESCFG
+      dashboard:
+        basic_auth:
+          username: \"admin\"
+          password_hash: \"${HASH}\"
+      HERMESCFG"
+      fi
+      docker compose restart hermes
+      echo "Dashboard password updated. Restarting hermes..."
+      PWEOF
+      chmod +x /opt/ai-stack/set-dashboard-password.sh
 
       echo "=== Installing DuckDNS auto-refresh cron (every 5 min, all subs) ==="
       (crontab -l 2>/dev/null; echo "*/5 * * * * curl -s 'https://www.duckdns.org/update?domains=${DUCK_SUBS}&token=${DUCK_TOKEN}&ip=' > /dev/null 2>&1") | crontab -
@@ -268,6 +323,8 @@ write_files:
         echo ""
         echo "WARN: ${CERT_FAILURES} domain(s) never presented a valid certificate."
         echo "      Diagnose with: docker logs nginx-ssl-companion"
+        echo "      docker exec nginx-proxy nginx -t   (check for config errors, e.g."
+        echo "        map_hash_bucket_size, which will silently block ALL domains)"
         echo "      Common causes: DNS not propagated yet, port 80 blocked,"
         echo "      or Let's Encrypt rate limits on duckdns.org names."
       fi
@@ -280,6 +337,9 @@ write_files:
       echo "   LibreChat : https://${DUCK_LC}.duckdns.org"
       fi
       echo "   Ingest    : drop files into /opt/ai-stack/ingest/inbox/"
+      echo ""
+      echo " Reset the dashboard password anytime with:"
+      echo "   sudo /opt/ai-stack/set-dashboard-password.sh"
       echo ""
       echo " Client API keys (saved to ${KEYS_FILE}):"
       cat "$KEYS_FILE"
@@ -307,6 +367,7 @@ write_files:
       else
         echo " Stack configured. Ingest inbox: /opt/ai-stack/ingest/inbox/"
         echo " Client API keys: /opt/ai-stack/api-keys.txt"
+        echo " Reset dashboard password: sudo /opt/ai-stack/set-dashboard-password.sh"
         echo " Safe shutdown: sudo /opt/ai-stack/safeshut.sh"
       fi
       echo "==============================================================="
