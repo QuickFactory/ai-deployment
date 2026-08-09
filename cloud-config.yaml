@@ -144,7 +144,7 @@ write_files:
       echo " Enter subdomain NAMES only (without .duckdns.org)."
       echo "=========================================================="
       read -p  "DuckDNS subdomain for the Hermes DASHBOARD: " DUCK_DASH
-      read -p  "DuckDNS subdomain for the Hermes API:       " DUCK_API
+      read -p  "DuckDNS subdomain for the Hermes API:" DUCK_API
       read -p  "Let's Encrypt notification email: " USER_EMAIL
       read -p  "OpenRouter API key (sk-or-...): " USER_OR_KEY
       read -p  "DuckDNS account token: " DUCK_TOKEN
@@ -152,6 +152,7 @@ write_files:
       echo ""
       read -p  "Discord Bot Token: " DISCORD_BOT_TOKEN
       read -p  "Discord Channel ID: " DISCORD_CHANNEL_ID
+      echo ""
       read -p  "Install LibreChat frontend? [y/N]: " INSTALL_LC
 
       DUCK_SUBS="${DUCK_DASH},${DUCK_API}"
@@ -252,13 +253,29 @@ write_files:
         echo "      See ${HASH_LOG} for the actual error."
         echo "      Fix it anytime with: sudo /opt/ai-stack/set-dashboard-password.sh"
       else
-        docker compose exec -T hermes bash -c "grep -q 'dashboard:' /opt/data/config.yaml || cat >> /opt/data/config.yaml << 'HERMESCFG'
+        # A bare `grep -q 'dashboard:'` matches Hermes' own default
+        # config.yaml, which ships full of COMMENTED example blocks like
+        # "# dashboard:" and "#   oauth:" documenting OAuth/OIDC options.
+        # That false-positive match made this guard think a real config
+        # already existed and silently skip the append — every time, on
+        # every fresh install — so the actual basic_auth block never got
+        # written at all. Anchor the match to a real, uncommented,
+        # column-0 top-level key so commented documentation can't trigger it.
+        docker compose exec -T hermes bash -c "grep -qE '^dashboard:' /opt/data/config.yaml || cat >> /opt/data/config.yaml << 'HERMESCFG'
       dashboard:
         basic_auth:
           username: \"admin\"
           password_hash: \"${HERMES_HASH}\"
       HERMESCFG"
-        docker compose up -d hermes
+        # `docker compose up -d hermes` is a no-op here — Compose only
+        # recreates a container when it detects a change to the service's
+        # own definition (image, env, compose file), and editing config.yaml
+        # via `docker compose exec` from inside the running container is
+        # invisible to that diff. Without an explicit restart, Hermes just
+        # keeps running with its original (auth-less) config forever, and
+        # keeps refusing to bind the dashboard no matter how many times this
+        # step "succeeds". `restart` forces it to actually reload the file.
+        docker compose restart hermes
       fi
 
       # Standalone helper so setting/resetting the dashboard password never
@@ -275,7 +292,12 @@ write_files:
         echo "ERROR: hash generation failed. Is the hermes container running? (docker compose ps hermes)"
         exit 1
       fi
-      if docker compose exec -T hermes grep -q 'dashboard:' /opt/data/config.yaml; then
+      # Anchor to a real, uncommented, column-0 top-level key — a bare
+      # 'dashboard:' substring also matches the commented example blocks
+      # Hermes ships by default in config.yaml, which would wrongly take
+      # the "just replace the hash" branch below even when no real
+      # basic_auth block exists yet, silently leaving auth unconfigured.
+      if docker compose exec -T hermes grep -qE '^dashboard:' /opt/data/config.yaml; then
         docker compose exec -T hermes sed -i "s|password_hash: \".*\"|password_hash: \"${HASH}\"|" /opt/data/config.yaml
       else
         docker compose exec -T hermes bash -c "cat >> /opt/data/config.yaml << HERMESCFG
