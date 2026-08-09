@@ -68,6 +68,16 @@ write_files:
       map $http_authorization $api_client { default ""; }
       PLACEHOLDER
 
+      # The client-key map's keys are ~47 chars ("Bearer hk-" + 40 hex
+      # chars from openssl rand -hex 20). nginx's default map_hash_bucket_size
+      # is too small for that once configure-ai fills in real keys, causing
+      # nginx to refuse to start entirely with "could not build map_hash,
+      # you should increase map_hash_bucket_size". Generate this upfront so
+      # it's in place before configure-ai ever populates real keys.
+      cat <<'MAPHASH' > nginx-conf/map-hash-size.conf
+      map_hash_bucket_size 128;
+      MAPHASH
+
       echo "=== 2. Storage layer ==="
       if mountpoint -q /mnt/ai-volume; then
         BASE_DATA_DIR="/mnt/ai-volume"
@@ -110,6 +120,11 @@ write_files:
       set -e
       cd /opt/ai-stack
 
+      # configure-ai runs as its own script, in its own process, after
+      # SSH login — it does NOT inherit RAW_URL (or anything else) from
+      # init-setup.sh's shell. Without this, ${RAW_URL} below was empty,
+      # so the librechat.yaml curl became "curl -sSL /librechat.yaml" with
+      # no host, producing: "curl: (3) URL rejected: No host part in the URL".
       GITHUB_USER="QuickFactory"
       GITHUB_REPO="ai-deployment"
       BRANCH="dbl"

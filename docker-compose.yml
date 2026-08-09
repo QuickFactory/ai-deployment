@@ -98,6 +98,7 @@ services:
       - ./nginx-conf/vhost.d:/etc/nginx/vhost.d # bind mount: deploy.sh drops the API auth snippet here
       - html:/usr/share/nginx/html
       - ./nginx-conf/api-keys.conf:/etc/nginx/conf.d/api-keys.conf:ro # map of 5 client keys
+      - ./nginx-conf/map-hash-size.conf:/etc/nginx/conf.d/map-hash-size.conf:ro
     networks:
       - ai-network
     depends_on:
