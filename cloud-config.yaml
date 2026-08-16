@@ -92,6 +92,7 @@ write_files:
                ingest/inbox ingest/processed ingest/failed; do
         mkdir -p "${BASE_DATA_DIR}/${d}"
       done
+      chown -R 1000:1000 "${BASE_DATA_DIR}/ingest"
       for l in hermes_data rag_data searxng librechat_data mongo_data postgres_data ingest; do
         ln -sfn "${BASE_DATA_DIR}/${l}" "./${l}"
       done
