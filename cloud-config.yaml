@@ -42,7 +42,7 @@ write_files:
       cd /opt/ai-stack
       GITHUB_USER="QuickFactory"
       GITHUB_REPO="ai-deployment"
-      BRANCH="dbl"
+      BRANCH="main"
       RAW_URL="https://raw.githubusercontent.com/${GITHUB_USER}/${GITHUB_REPO}/${BRANCH}"
 
       robust_curl() {
@@ -132,7 +132,7 @@ write_files:
       # no host, producing: "curl: (3) URL rejected: No host part in the URL".
       GITHUB_USER="QuickFactory"
       GITHUB_REPO="ai-deployment"
-      BRANCH="dbl"
+      BRANCH="main"
       RAW_URL="https://raw.githubusercontent.com/${GITHUB_USER}/${GITHUB_REPO}/${BRANCH}"
 
       if [ -f .env ]; then
