@@ -9,18 +9,22 @@
 # Allow the tracking example template to stay visible to users
 !.env.example
 
+api-keys.txt
 # ==========================================
-# 2. Local Stack Persistent Data Stores
+# 2. Generated at deploy time (contain live client keys / internal token)
 # ==========================================
-# Keep application data and message history states localized to the VPS
-hermes_data/
-rag_data/
-librechat_data/
-searxng/
+nginx-conf/api-keys.conf
+nginx-conf/vhost.d/
 
-# Block Docker engine dynamic named volumes if mounted locally
-postgres_data/
-mongo_data/
+# Runtime data (symlinks to /mnt/ai-volume or local_data)
+local_data/
+hermes_data
+rag_data
+searxng
+librechat_data
+mongo_data
+postgres_data
+ingest
 
 # ==========================================
 # 3. Web Proxy, Cache, and SSL Footprints
